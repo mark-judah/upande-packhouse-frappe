@@ -2322,7 +2322,23 @@ def allocate_orders(
 	_use_group(item_group)
 	if isinstance(sales_orders, str):
 		sales_orders = json.loads(sales_orders or "[]")
-	want = set(sales_orders or [])
+	added, n = _allocate_more(
+		location,
+		delivery_start,
+		delivery_end,
+		set(sales_orders or []),
+		_farms(selected_farms),
+		frappe.utils.cint(bypass_cut_stage),
+	)
+	frappe.db.commit()  # nosemgrep
+	return {"stems": added, "orders": n}
+
+
+def _allocate_more(location, delivery_start, delivery_end, want, farms, bypass=False):
+	"""Plan these orders again on top of what they hold waiting release, adding to their proposal: a mixed
+	box a downgrade or another variety has just made fillable gets its other lines. (stems added, orders)."""
+	if not want:
+		return 0.0, 0
 	orders = [o for o in _orders(location, delivery_start, delivery_end) if o.name in want]
 	# an order opened from outside the dates shown: read on its own delivery day
 	for so in want - {o.name for o in orders}:
@@ -2336,18 +2352,17 @@ def allocate_orders(
 		location,
 		delivery_start,
 		delivery_end,
-		_farms(selected_farms),
+		farms,
 		None,
 		(),
 		orders,
 		prior=prior,
-		bypass_orders=want if frappe.utils.cint(bypass_cut_stage) else (),
+		bypass_orders=want if bypass else (),
 	)
 	added = 0.0
 	for o in out:
-		added += _add_checked(location, o["sales_order"], o["allocations"], _farms(selected_farms))
-	frappe.db.commit()  # nosemgrep
-	return {"stems": added, "orders": len(out)}
+		added += _add_checked(location, o["sales_order"], o["allocations"], farms)
+	return added, len(out)
 
 
 @frappe.whitelist()
@@ -2476,9 +2491,20 @@ def apply_downgrades(
 		if not rows:
 			continue
 		_add_pending(location, so, rows, {}, source="Allocate all")
+	# Allocate all left out every mixed box it could not fill whole: the downgrade fills the short line, and
+	# the box's other lines are planned now on top of it, or the box stays empty
+	more, _n = _allocate_more(
+		location, delivery_start, delivery_end, {so for so, rows in by_order.items() if rows}, farms
+	)
 	frappe.db.commit()  # nosemgrep
 	p = _proposal(location, delivery_start, delivery_end)
-	return {"stems": added, "orders": len(by_order), "proposal": _summary(p)}
+	return {
+		"stems": added + more,
+		"downgraded": added,
+		"completed": more,
+		"orders": len(by_order),
+		"proposal": _summary(p),
+	}
 
 
 def _plan_day(

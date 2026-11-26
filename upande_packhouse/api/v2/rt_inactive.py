@@ -34,7 +34,6 @@ from frappe.utils import cint, now_datetime
 from upande_packhouse.api.v2.core import bucket_activity as act
 from upande_packhouse.api.v2.core import region as rgn
 
-DEFAULT_DAYS = 4
 RECEIVED_LOOKBACK_DAYS = 30
 ROW_CAP = 1000
 RANK = {
@@ -49,15 +48,14 @@ RANK = {
 
 
 def inactive_days():
-	"""Production Settings > Inactive Bucket Days; 4 when unset, zero or unreadable."""
+	"""Production Settings > Inactive Bucket Days (0 on a site without Production Settings: not set)."""
 	try:
-		v = cint(frappe.db.get_single_value("Production Settings", "inactive_bucket_days"))
-	except Exception:
-		v = 0
-	return v if v > 0 else DEFAULT_DAYS
+		return cint(frappe.db.get_single_value("Production Settings", "inactive_bucket_days"))
+	except frappe.DoesNotExistError:
+		return 0
 
 
-def candidates(now=None, days=DEFAULT_DAYS):
+def candidates(now=None, days=0):
 	"""{BUCKET: {...}} every bucket still in the process, with its stage, place, variety and stems."""
 	now = now or now_datetime()
 	C = {}

@@ -82,6 +82,8 @@ ACTIVE_TRIP_STATUSES = ("Draft", "Requested", "Scheduled")
 # transfer flags still say (a bucket packed without being scanned in kept
 # awaiting_transfer=1 and showed as waiting at the farm for good).
 PACKED_SQL = "(IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1)"
+#: A Quality B pick list (made from Grade B when its order is submitted).
+QUALITY_B_SQL = "IFNULL(opl.quality_b, 0)"
 #: How far back to look for trips that were never received (still on the road).
 TRIP_LOOKBACK_DAYS = 7
 
@@ -4499,7 +4501,10 @@ def _schedule_orders(from_date, to_date, hub=None):
 	opl_rows = frappe.db.sql(
 		"""
 		SELECT DISTINCT opl.name AS opl, opl.order_name AS order_name, opl.sales_order AS so,
-		       so.customer AS customer, so.delivery_date AS delivery_date, opl.team AS opl_team
+		       so.customer AS customer, so.delivery_date AS delivery_date, opl.team AS opl_team,
+		       """
+		+ QUALITY_B_SQL
+		+ """ AS quality_b
 		FROM `tabOrder Pick List` opl
 		JOIN `tabSales Order` so ON so.name = opl.sales_order
 		JOIN `tabPick List Item` pli ON pli.parent = opl.name AND pli.parenttype = 'Order Pick List'
@@ -4601,6 +4606,8 @@ def _schedule_orders(from_date, to_date, hub=None):
 				"mixed": _mixed_label(mixed.get(r["opl"])),
 				"schedule": sc.get("schedule"),
 				"team": sc.get("team"),
+				# Quality B: never planned onto a trip; the farm loads it onto the truck that collects it
+				"quality_b": int(r.get("quality_b") or 0),
 				"total_buckets": total_b,
 				"total_stems": total_s,
 				"on_road_buckets": total_road,

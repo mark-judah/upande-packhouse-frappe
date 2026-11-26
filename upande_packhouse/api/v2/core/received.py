@@ -145,7 +145,7 @@ def _received_unshelved(farms, cfg):
 			continue
 		anchor = r.harvest_date or r.received_on
 		age = (now - getdate(anchor)).days if anchor else 0
-		limit = farm_cfg.get(r.farm, {}).get("max_allocation_age", 5)
+		limit = farm_cfg.get(r.farm, {}).get("max_allocation_age", discard_age)
 		if age > limit or age >= discard_age:
 			continue
 		r.stems = float(r.stems or 0)

@@ -34,7 +34,6 @@ from upande_packhouse.permissions import STAFF, guard
 
 SETTING = "auto_remote_transfer_scheduling"
 FREQUENCY = "auto_transfer_frequency"
-DEFAULT_FREQUENCY_MINUTES = 10
 #: A cron tick lands a little after the interval (the last run's own duration);
 #: without slack a 10-minute setting would drift to every 15.
 TICK_SLACK_SECONDS = 90
@@ -49,9 +48,7 @@ def enabled():
 
 
 def frequency_minutes():
-	return frappe.utils.cint(frappe.get_cached_doc("Production Settings").get(FREQUENCY)) or (
-		DEFAULT_FREQUENCY_MINUTES
-	)
+	return frappe.utils.cint(frappe.get_cached_doc("Production Settings").get(FREQUENCY))
 
 
 def status():
@@ -165,7 +162,10 @@ def _scheduled_portions(today):
 	orders = [
 		o
 		for o in tc.schedule_orders(frappe.utils.add_days(today, 1), frappe.utils.add_days(today, 2))
-		if o.get("schedule") and o.get("farms") and str(o.get("delivery_date") or "") > str(today)
+		if o.get("schedule")
+		and o.get("farms")
+		and not o.get("quality_b")
+		and str(o.get("delivery_date") or "") > str(today)
 	]
 	if not orders:
 		return {}
@@ -608,7 +608,7 @@ def _waiting_by_farm(window=None):
 	waiting = {}
 	default = tc.transfer_hub(required=False)
 	for o in data["orders"]:
-		if not o.get("schedule"):
+		if not o.get("schedule") or o.get("quality_b"):
 			continue
 		hub = o.get("sales_farm") or default
 		if not tc.is_sales_farm(hub):
@@ -1029,7 +1029,8 @@ def _open_orders(data):
 		covered[key] = covered.get(key, 0) + n
 	out = []
 	for o in data["orders"]:
-		if not o.get("schedule"):
+		# Quality B is loaded onto whichever truck collects it: never planned onto a trip
+		if not o.get("schedule") or o.get("quality_b"):
 			continue
 		farms = []
 		for f in o["farms"]:

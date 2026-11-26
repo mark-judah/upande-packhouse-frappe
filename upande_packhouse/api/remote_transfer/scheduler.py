@@ -281,7 +281,7 @@ def getSchedulerFeed():
             SELECT o.name AS name, o.customer AS customer, o.order_name AS custom_order_name,
                    o.team AS custom_team, o.custom_total_stems AS custom_total_stems,
                    o.docstatus AS docstatus, 0 AS custom_is_mixed_box_pick_list,
-                   o.creation AS creation
+                   o.creation AS creation, IFNULL(o.quality_b, 0) AS quality_b
             FROM `tabOrder Pick List` o
             JOIN `tabSales Order` so ON so.name = o.sales_order
             WHERE so.delivery_date = %(dd)s AND o.docstatus < 2
@@ -604,6 +604,7 @@ def getSchedulerFeed():
 			row = {
 				"opl": op,
 				"location": where.get(op, ""),
+				"quality_b": int(o.get("quality_b") or 0),
 				# the sales farm the order is packed at (its buckets go there)
 				"sales_farm": hubs.get(op) or "",
 				"order_name": o.get("custom_order_name") or op,

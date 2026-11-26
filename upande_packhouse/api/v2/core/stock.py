@@ -170,7 +170,7 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 			r.over_allocated = max(0.0, a - stems)
 		farm_cfg = fc.get(r.shelf_farm, {})
 		age = r.age_days if r.age_days is not None else 0
-		r.too_old = age > farm_cfg.get("max_allocation_age", 5) or age >= discard_age
+		r.too_old = age > farm_cfg.get("max_allocation_age", discard_age) or age >= discard_age
 		r.hours_cooled = cooled.get(r.bucket_id, r.hours_on_shelf or 0)
 		r.cooling = (r.hours_cooled or 0) < farm_cfg.get("cooling_hours", 0)
 		# the free stems, each in one bucket: too old, cooling, spare on a bucket going to another farm, or

@@ -101,7 +101,12 @@ def orders():
 	harvested for the order, whether harvesting is done and the order received, and its pick lists."""
 	extra = [
 		f
-		for f in ("custom_sea_freight_harvested", "custom_sea_freight_received", "custom_order_name")
+		for f in (
+			"custom_sea_freight_harvested",
+			"custom_sea_freight_received",
+			"custom_order_name",
+			"custom_allocation_sequence",
+		)
 		if _has(f)
 	]
 	sos = frappe.get_all(
@@ -118,7 +123,45 @@ def orders():
 	)
 	if not sos:
 		return {"orders": []}
+	# only what Allocation Planning sequenced and planned to a greenhouse is expected here
+	planned = (
+		set(
+			frappe.db.sql_list(
+				"""SELECT DISTINCT p.sales_order FROM `tabSea Freight Greenhouse Plan` p
+				JOIN `tabSea Freight Greenhouse Plan Row` r ON r.parent = p.name AND r.stems > 0
+				WHERE p.sales_order IN %(s)s""",
+				{"s": tuple(s.name for s in sos)},
+			)
+		)
+		if frappe.db.table_exists("Sea Freight Greenhouse Plan")
+		else set()
+	)
+	sos = [s for s in sos if s.name in planned and int(s.get("custom_allocation_sequence") or 0) > 0]
+	if not sos:
+		return {"orders": []}
+	# expected in the order they are harvested: Allocation Planning's sequence for each delivery day (the ones not
+	# planned yet last); one may still arrive sooner and is received whenever it comes
+	sos.sort(
+		key=lambda o: (
+			str(o.delivery_date or ""),
+			int(o.get("custom_allocation_sequence") or 0) <= 0,
+			int(o.get("custom_allocation_sequence") or 0),
+			o.name,
+		)
+	)
 	names = [s.name for s in sos]
+	teams = {}
+	for r in frappe.get_all(
+		"Allocation Confirmation",
+		filters={
+			"sales_order": ["in", names],
+			"status": ["in", ["Planned", "Reserved", "Partly Fulfilled", "Broken", "Fulfilled"]],
+			"team": ["is", "set"],
+		},
+		fields=["sales_order", "team"],
+		order_by="modified desc",
+	):
+		teams.setdefault(r.sales_order, r.team)
 	lines = frappe.get_all(
 		"Sales Order Item",
 		filters={"parent": ["in", names]},
@@ -179,6 +222,8 @@ def orders():
 				"customer": so.customer_name or so.customer,
 				"delivery_date": str(so.delivery_date or ""),
 				"status": so.status,
+				"sequence": int(so.get("custom_allocation_sequence") or 0),
+				"team": teams.get(so.name, ""),
 				"harvest_done": bool(so.get("custom_sea_freight_harvested")),
 				"received": so.name in received_orders,
 				"ordered_stems": sum(i["ordered_stems"] for i in items),
@@ -276,6 +321,24 @@ def receive(sales_order: str, buckets: str | list | None = None):
 		},
 	)
 	return {"sales_order": sales_order, "pick_lists": created}
+
+
+@frappe.whitelist(methods=["GET"])
+def marks():
+	"""The open sea freight orders and their submitted pick lists: the Sea Freight banner on the packhouse app's
+	screens after packing (box labels, loading, dispatch)."""
+	rows = frappe.db.sql(
+		"""SELECT so.name AS so, opl.name AS opl FROM `tabSales Order` so
+		LEFT JOIN `tabOrder Pick List` opl ON opl.sales_order = so.name AND opl.docstatus = 1
+		WHERE so.docstatus = 1 AND so.custom_mode_of_transport = %s
+		  AND so.status NOT IN ('Completed', 'Closed', 'Cancelled')""",
+		(SEA_FREIGHT,),
+		as_dict=True,
+	)
+	return {
+		"sales_orders": sorted({r.so for r in rows}),
+		"pick_lists": sorted({r.opl for r in rows if r.opl}),
+	}
 
 
 @frappe.whitelist(methods=["GET"])

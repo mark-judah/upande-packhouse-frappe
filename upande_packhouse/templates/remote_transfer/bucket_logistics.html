@@ -451,7 +451,7 @@
   }
   function ovTripCell(o) {
     var t = o.trips || [];
-    if (!t.length) return o.truck ? ('<span class="ov-trip-chip">' + esc(o.truck) + '</span>') : ('<span class="ov-sub">' + (ovUnschedBuckets(o) > 0 ? 'Not scheduled' : '—') + '</span>');
+    if (!t.length) return o.truck ? ('<span class="ov-trip-chip">' + esc(o.truck) + '</span>') : ('<span class="ov-sub">' + (ovUnschedBuckets(o) > 0 ? ovNoTripLabel(o) : '—') + '</span>');
     return t.map(ovTripLineHtml).join('');
   }
   // Each order's buckets arrive at its own sales farm (Kapkolia, Chepsito ...).
@@ -506,13 +506,22 @@
     var fs = (o.by_farm && o.by_farm.length) ? o.by_farm : [o];
     return fs.reduce(function (n, f) { return n + ovUnschedAt(o, f); }, 0);
   }
+  // Buckets still at a remote farm with no truck: Quality B (loaded onto whichever truck collects it),
+  // else waiting for a truck (on a schedule) or not scheduled.
+  function ovCountWaiting(s, o) {
+    var n = ovUnschedBuckets(o);
+    if (Number(o.quality_b)) s.qb += n; else if (Number(o.scheduled)) s.notruck += n; else s.unsched += n;
+  }
+  function ovNoTripLabel(o) {
+    return Number(o.quality_b) ? 'Quality B' : (Number(o.scheduled) ? 'No truck yet' : 'Not scheduled');
+  }
   function ovSum(rows, k) { return rows.reduce(function (a, r) { return a + (r[k] || 0); }, 0); }
   function ovRenderKpis(orders) {
-    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, unsched: 0, notruck: 0 };
+    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, unsched: 0, notruck: 0, qb: 0 };
     orders.forEach(function (o) {
       s.buckets += o.total || 0; s.shelved += o.shelved || 0; s.transit += o.transit || 0;
       s.trolley += o.trolley || 0; s.awaiting += o.awaiting || 0; s.issued += o.issued || 0;
-      if (Number(o.scheduled)) s.notruck += ovUnschedBuckets(o); else s.unsched += ovUnschedBuckets(o);
+      ovCountWaiting(s, o);
     });
     var pct = s.buckets ? Math.round(s.shelved / s.buckets * 100) : 0;
     return [
@@ -525,21 +534,22 @@
       ovKpiCard('Issued', s.issued.toLocaleString()),
       ovKpiCard('Not scheduled', s.unsched.toLocaleString()),
       ovKpiCard('No truck yet', s.notruck.toLocaleString()),
+      ovKpiCard('Quality B at farm', s.qb.toLocaleString()),
     ].join('');
   }
   // The original Bucket Logistics KPI tiles and truck cards, as they were (page's
   // aph-kpi styles): stage totals over the orders shown, then one card per truck.
   function ovOrigKpis(orders) {
     var card = function (lbl, val, sub) { return '<div class="aph-kpi"><div class="lbl" title="' + String(lbl).replace(/<[^>]*>/g, '').replace(/"/g, '&quot;') + '">' + lbl + '</div><div class="v">' + val + '</div>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>'; };
-    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, notFound: 0, unsched: 0, notruck: 0 };
+    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, notFound: 0, unsched: 0, notruck: 0, qb: 0 };
     orders.forEach(function (o) {
       s.buckets += o.total || 0; s.shelved += o.shelved || 0; s.transit += o.transit || 0;
       s.trolley += o.trolley || 0; s.awaiting += o.awaiting || 0; s.issued += o.issued || 0; s.notFound += o.not_found || 0;
-      if (Number(o.scheduled)) s.notruck += ovUnschedBuckets(o); else s.unsched += ovUnschedBuckets(o);
+      ovCountWaiting(s, o);
     });
     // Bucket tiles once per physical bucket (a bucket split over two orders is one).
     var tt = OV.totals;
-    if (tt && tt.total != null && orders === OV.orders) {
+    if (tt && tt.total != null && orders === OV.orders && !ovKind()) {
       s.buckets = tt.total; s.shelved = tt.shelved; s.transit = tt.transit; s.trolley = tt.trolley;
       s.awaiting = tt.awaiting; s.issued = tt.issued; s.notFound = tt.not_found;
     }
@@ -558,6 +568,7 @@
       card('Replaced', '<span style="color:' + (nRepl ? '#7c3aed' : 'inherit') + '">' + nRepl.toLocaleString() + '</span>'),
       card('Not scheduled', s.unsched.toLocaleString()),
       card('No truck yet', s.notruck.toLocaleString()),
+      card('Quality B at farm', s.qb.toLocaleString()),
     ];
     var runs = (OV.runs || []).filter(function (r) { return r.current; }), byV = {};
     runs.forEach(function (r) { (byV[r.vehicle] = byV[r.vehicle] || []).push(r); });
@@ -602,6 +613,9 @@
   // it (a slow reply is never thrown away by the next tick). A reply is dropped only when
   // its day is no longer the day shown, or a newer reply for that day is already in.
   var OV_SEQ = 0, OV_PENDING = null;
+  // The page's Orders filter: Quality B (webstore) orders, or every other order (export).
+  function ovKind() { return (window.rtKind && window.rtKind.get()) || ''; }
+  function ovKindOk(o) { var k = ovKind(); return !k || (k === 'qualityb' ? !!Number(o.quality_b) : !Number(o.quality_b)); }
   function ovLoad() {
     // The page's global filters (date, farm, team) decide what is shown.
     var day = (window.rtDate && window.rtDate.get()) || OV.date;
@@ -621,7 +635,7 @@
       var sig = JSON.stringify([d && d.orders, d && d.runs, d && d.bucket_totals]);
       if (sig !== OV.sig) {
         OV.sig = sig;
-        OV.orders = (d && d.orders) || []; OV.runs = (d && d.runs) || []; OV.totals = (d && d.bucket_totals) || null;
+        OV.orders = ((d && d.orders) || []).filter(ovKindOk); OV.runs = (d && d.runs) || []; OV.totals = (d && d.bucket_totals) || null;
         BL_LINES = {}; BL_LINES_FOR = null;
         OV.details = {};
         renderActive();
@@ -779,7 +793,7 @@
         var trips = (o.trips || []).filter(function (t) { return !t.farm || !f.farm || t.farm === f.farm; });
         var base = {
           opl: o.opl, order_name: o.order_name || o.opl, customer: o.customer, sales_order: o.sales_order,
-          team: o.team, no_team: o.no_team, schedule: o.schedule, sequence: o.sequence, scheduled: o.scheduled, delivery_date: o.delivery_date,
+          team: o.team, no_team: o.no_team, schedule: o.schedule, sequence: o.sequence, scheduled: o.scheduled, quality_b: o.quality_b, delivery_date: o.delivery_date,
           initiated: o.initiated, arrived: o.arrived, hub: o.hub, asap: o.asap, truck: o.truck,
           farm: f.farm || '', varieties: f.varieties != null ? f.varieties : o.varieties,
         };
@@ -791,7 +805,7 @@
         // trip that went, or never planned): one No truck yet / Not scheduled row with just
         // those buckets, as the farm app lists it.
         var waiting = ovUnschedAt(o, f.total != null ? f : base);
-        if (waiting > 0) combos.push(Object.assign({}, base, { trip: null, waiting: waiting, section: Number(o.scheduled) ? 'No truck yet' : 'Not scheduled' }));
+        if (waiting > 0) combos.push(Object.assign({}, base, { trip: null, waiting: waiting, section: ovNoTripLabel(o) }));
       });
     });
     return combos;
@@ -1177,7 +1191,7 @@
     var byTrip = {}, order = [];
     combos.forEach(function (r) {
       // no trip: on the schedule, waiting for a truck -- or not scheduled at all
-      var key = r.trip ? r.trip.trip : (Number(r.scheduled) ? 'NOTRUCK' : 'UNASSIGNED');
+      var key = r.trip ? r.trip.trip : (Number(r.quality_b) ? 'QUALITYB' : (Number(r.scheduled) ? 'NOTRUCK' : 'UNASSIGNED'));
       if (!byTrip[key]) { byTrip[key] = { trip: r.trip, rows: [] }; order.push(key); }
       byTrip[key].rows.push(r);
     });
@@ -1237,7 +1251,7 @@
       var farmsChips = '<span class="tt-trip-farms">' + Object.keys(tFarms).sort().map(function (f) { return '<span class="tt-trip-farm">' + esc(f) + ' <b>' + tFarms[f] + '</b></span>'; }).join('') + '</span>';
       var tLabel = g.trip
         ? (esc((g.trip.vehicle || g.trip.trip) + (g.trip.run ? ' · Trip ' + g.trip.run : '')) + ' <span class="ov-sub">· ' + esc(tripStatus(g.trip)) + (g.trip.trip_date ? ' · ' + esc(g.trip.trip_date) : '') + '</span>')
-        : (tkey === 'NOTRUCK' ? '<i>No truck yet</i>' : '<i>Not scheduled</i>');
+        : (tkey === 'QUALITYB' ? '<i>Quality B</i>' : (tkey === 'NOTRUCK' ? '<i>No truck yet</i>' : '<i>Not scheduled</i>'));
       var farmsHtml = '';
       if (!tShut) {
         var byFarm = groupBy(g.rows, 'farm'), farms = Object.keys(byFarm).sort();
@@ -1435,6 +1449,7 @@
         return ts.length ? ts : (r.truck ? [r.truck] : []);
       })));
       var scheduled = p.rows.some(function (r) { return Number(r.scheduled); });
+      var qualityB = p.rows.some(function (r) { return Number(r.quality_b); });
       var body = '';
       if (!shut) {
         var ls = BL_LINES[p.opl];
@@ -1455,7 +1470,7 @@
           '<span>' + esc(p.opl) + ' <span class="ov-sub">· ' + esc(g.name) + ' · ' + esc(g.customer || '') + ' · delivery ' + ovFmtD(g.delivery) + '</span></span>' +
           ovTeamTag(o) +
           (hub ? '<span class="tt-trip-farm" title="The sales farm the buckets go to: the order is processed there">→ ' + esc(hub) + '</span>' : '') +
-          (trips.length ? '<span class="tt-trip-farms">' + trips.map(function (t) { return '<span class="tt-trip-farm">' + esc(t) + '</span>'; }).join('') + '</span>' : '<span class="ov-sub"><i>' + (scheduled ? 'No truck yet' : 'Not scheduled') + '</i></span>') +
+          (trips.length ? '<span class="tt-trip-farms">' + trips.map(function (t) { return '<span class="tt-trip-farm">' + esc(t) + '</span>'; }).join('') + '</span>' : '<span class="ov-sub"><i>' + (qualityB ? 'Quality B' : (scheduled ? 'No truck yet' : 'Not scheduled')) + '</i></span>') +
           '<span class="ov-count">' + total.toLocaleString() + ' bucket' + (total === 1 ? '' : 's') + '</span>' +
           '<button type="button" class="tt-exp" data-bl-oplexp="' + esc(p.opl) + '">' + (blOplAllOpen(p) ? 'Collapse' : 'Expand') + '</button>' +
         '</div>' +
@@ -1477,6 +1492,7 @@
         return ts.length ? ts : (o.truck ? [o.truck] : []);
       })));
       var scheduled = g.rows.some(function (o) { return Number(o.scheduled); });
+      var qualityB = g.rows.some(function (o) { return Number(o.quality_b); });
       var hubs = ovHubsOf(g.rows);
       var linesHtml = '';
       if (!shut) {
@@ -1504,7 +1520,7 @@
         '<div class="tt-trip-h" data-tt-toggle="' + esc(okey) + '"><span class="ov-caret">' + (shut ? '▸' : '▾') + '</span>' +
           '<span>' + esc(g.name) + ' <span class="ov-sub">· ' + esc(g.customer || '') + ' · delivery ' + ovFmtD(g.delivery) + (opls.length > 1 ? ' · ' + opls.length + ' pick lists' : '') + '</span></span>' +
           (hubs ? '<span class="tt-trip-farm" title="The sales farm the buckets go to: the order is processed there">→ ' + esc(hubs) + '</span>' : '') +
-          (trips.length ? '<span class="tt-trip-farms">' + trips.map(function (t) { return '<span class="tt-trip-farm">' + esc(t) + '</span>'; }).join('') + '</span>' : '<span class="ov-sub"><i>' + (scheduled ? 'No truck yet' : 'Not scheduled') + '</i></span>') +
+          (trips.length ? '<span class="tt-trip-farms">' + trips.map(function (t) { return '<span class="tt-trip-farm">' + esc(t) + '</span>'; }).join('') + '</span>' : '<span class="ov-sub"><i>' + (qualityB ? 'Quality B' : (scheduled ? 'No truck yet' : 'Not scheduled')) + '</i></span>') +
           '<span class="ov-count">' + sum('total').toLocaleString() + ' bucket' + (sum('total') === 1 ? '' : 's') + '</span>' +
           '<button type="button" class="tt-exp" data-bl-exp="' + esc(g.key) + '">' + (blOrderAllOpen(g) ? 'Collapse' : 'Expand') + '</button>' +
         '</div>' +
@@ -2100,6 +2116,8 @@
     renderActive();
   };
   window.tmLoad = function () { return ovLoad(); };
+  // the Orders filter changed: the day is read again and only its orders are shown
+  if (window.rtKind) window.rtKind.on(function () { OV.sig = null; OV_PENDING = null; ovLoad(); });
 
   function renderTabs() {
     var bar = document.getElementById('tm-tabs');

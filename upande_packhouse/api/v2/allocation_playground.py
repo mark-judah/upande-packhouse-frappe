@@ -40,7 +40,7 @@ from frappe import _
 from frappe.utils import add_days, cint, flt, getdate, today
 
 from upande_packhouse import allocation_plan as plans
-from upande_packhouse import availability
+from upande_packhouse import availability, quality_b
 from upande_packhouse.api.v2 import allocation_forecast as forecasts
 from upande_packhouse.api.v2.core import pipeline, received, stock
 
@@ -306,7 +306,9 @@ def _forecast_rows(variety, year, week, farms):
 
 def _forecast_rows_for(varieties, year, week, farms):
 	"""{variety: [{grade, farm, revised, manual}]} of the week's forecast, by grade and growing farm. `varieties`
-	None: every variety forecast that week."""
+	None: every variety forecast that week. Quality B (the Orders filter) is planned from the shelf only: none."""
+	if _order_kind() == "qualityb":
+		return defaultdict(list)
 	conds, params = [], {"y": year, "w": week}
 	if varieties is not None:
 		conds.append("f.variety IN %(v)s")
@@ -383,22 +385,55 @@ def _plan_name(day, farm):
 	return cache[key]
 
 
+def _with_greenhouses(fn):
+	"""Sea freight lines carry their greenhouses (sea_freight_plan.with_greenhouses); imported late, the module
+	imports this one."""
+	import functools
+
+	@functools.wraps(fn)
+	def wrapper(*args, **kwargs):
+		from upande_packhouse.api.v2.sea_freight_plan import with_greenhouses
+
+		return with_greenhouses(fn)(*args, **kwargs)
+
+	return wrapper
+
+
+def _order_kind():
+	"""Allocation Planning's Orders filter, sent by the page as `order_kind`: Quality B (webstore, Shopping Cart)
+	orders, sea freight orders (harvested for the order, planned by greenhouse: sea_freight_plan), else export --
+	every other order. Any other caller plans export."""
+	kind = (frappe.form_dict or {}).get("order_kind")
+	return kind if kind in ("qualityb", "seafreight") else "export"
+
+
+def _kind_sql():
+	"""The orders the Orders filter shows, as SQL on `so`."""
+	kind = _order_kind()
+	sea = (
+		"IFNULL(so.custom_mode_of_transport, '') = 'Sea Freight'"
+		if frappe.db.has_column("Sales Order", "custom_mode_of_transport")
+		else "0"
+	)
+	if kind == "qualityb":
+		return "AND IFNULL(so.order_type, '') = 'Shopping Cart'"
+	if kind == "seafreight":
+		return "AND " + sea
+	return "AND IFNULL(so.order_type, '') != 'Shopping Cart' AND NOT (" + sea + ")"
+
+
 def _lines(day, to=None):
-	"""The lines for a delivery day, or for every day from `day` to `to` (read once per request)."""
+	"""The lines for a delivery day, or for every day from `day` to `to` (read once per request), of the orders
+	the Orders filter shows (_order_kind)."""
+	kind = _order_kind()
 
 	def read():
-		# Quality B (webstore, Shopping Cart) orders are not planned: their pick lists come from Grade B buckets
-		lines = pipeline.fetch_lines(
-			delivery_from=day,
-			delivery_to=to or day,
-			extra_where="AND IFNULL(so.order_type, '') != 'Shopping Cart'",
-		)
+		lines = pipeline.fetch_lines(delivery_from=day, delivery_to=to or day, extra_where=_kind_sql())
 		pipeline.attach_pipeline(lines)
 		return lines
 
-	return list(
-		_memo(("lines", str(day), str(to or day)), lambda: _shared(("lines", str(day), str(to or day)), read))
-	)
+	key = ("lines", str(day), str(to or day), kind)
+	return list(_memo(key, lambda: _shared(key, read)))
 
 
 def _lines_for(day, farm, to=None):
@@ -483,8 +518,32 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 		)
 
 	farms = _stock_farms(farm)
-	# every variety's stock rows once per request: the board, the checks and each day of a week read the same shelf
 	wanted = set(varieties) if varieties else None
+	if _order_kind() == "qualityb":
+		# Quality B is packed from the shelf stock at or past its discard age on the processing day: no
+		# received-not-shelved stock, no harvest, no forecast
+		key = ("qb_rows", tuple(farms) if farms is not None else None, str(day or ""))
+		for r in _memo(key, lambda: _shared(key, lambda: quality_b.aged_stock(farms, day))):
+			if wanted is not None and r.variety not in wanted:
+				continue
+			p = entry((r.variety, r.stem_length or ""))
+			p["free"] += r.qb_free
+			p["buckets"] += 1
+			p["oldest"] = max(p["oldest"], r.age_days or 0)
+			p["by_farm"][r.shelf_farm] = p["by_farm"].get(r.shelf_farm, 0.0) + r.qb_free
+		_take_outstanding(out, farms)
+		return out
+	if _order_kind() == "seafreight":
+		# harvested for the order: nothing from the shelf or the cold room, only the cutting day's harvest (the
+		# forecast is added by the board as for export)
+		if day and varieties:
+			cut = getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
+			for key, h in received.harvested_day(cut, _growing_farms(farm), varieties).items():
+				p = entry(key)
+				p["harvested"] = h["harvested"]
+				p["on_the_way"] = h["not_received"]
+		return out
+	# every variety's stock rows once per request: the board, the checks and each day of a week read the same shelf
 	every = _memo(
 		("bucket_rows", tuple(farms) if farms is not None else None),
 		lambda: _shared(
@@ -516,8 +575,19 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 		if r.age_days >= amber:
 			p["old"] += free
 			p["old_by_farm"][r.farm] = p["old_by_farm"].get(r.farm, 0.0) + free
-	# stems the plan confirmed from stock and not allocated yet are no longer free: off the shelf first, then off
-	# what is received and waiting for a shelf
+	_take_outstanding(out, farms)
+	if day and varieties:
+		cut = getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
+		for key, h in received.harvested_day(cut, _growing_farms(farm), varieties).items():
+			p = entry(key)
+			p["harvested"] = h["harvested"]
+			p["on_the_way"] = h["not_received"]
+	return out
+
+
+def _take_outstanding(out, farms):
+	"""Stems the plan confirmed from stock and not allocated yet are no longer free: off the shelf first, then
+	off what is received and waiting for a shelf."""
 	for (f, variety, length), stems in plans.real_outstanding(farms).items():
 		p = out.get((variety, length))
 		if not p or stems <= 0:
@@ -529,13 +599,6 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 		p["received"] -= rest
 		p["rec_by_farm"][f] = max(0.0, p["rec_by_farm"].get(f, 0.0) - rest)
 		p["held"] += take + rest
-	if day and varieties:
-		cut = getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
-		for key, h in received.harvested_day(cut, _growing_farms(farm), varieties).items():
-			p = entry(key)
-			p["harvested"] = h["harvested"]
-			p["on_the_way"] = h["not_received"]
-	return out
 
 
 def expected_for(variety, length, day, farm, s):
@@ -809,6 +872,7 @@ def _week_pools(days, farm, only_variety):
 
 
 @frappe.whitelist()
+@_with_greenhouses
 def get_board(
 	delivery_date: str | None = None,
 	farm: str | None = None,
@@ -1093,7 +1157,7 @@ def _discard_ages():
 
 			return discard_age_resolver()
 		except ImportError:
-			default = flt(stock._config()["discard_age"]) or 5.0
+			default = flt(stock._config()["discard_age"])
 			return lambda _item=None: default
 
 	return _memo(("discard_ages",), build)
@@ -1134,7 +1198,10 @@ def _forecast_supply(days, farm, only=None):
 	prod_today = defaultdict(float)
 	for (year, week), hs in weeks.items():
 		week_rows = (
-			_shared(("fc_rows", year, week, farms), lambda: _forecast_rows_for(None, year, week, farms))
+			_shared(
+				("fc_rows", year, week, farms, _order_kind()),
+				lambda: _forecast_rows_for(None, year, week, farms),
+			)
 			if varieties is None
 			else _forecast_rows_for(varieties, year, week, farms)
 		)
@@ -1577,6 +1644,7 @@ def get_confirmed_orders(delivery_date: str | None = None, farm: str | None = No
 
 
 @frappe.whitelist()
+@_with_greenhouses
 def get_pool(
 	delivery_date: str | None = None,
 	farm: str | None = None,
@@ -2228,6 +2296,16 @@ def confirm_lines(
 	frappe.only_for(PLANNERS)
 	_changed()
 	from upande_packhouse.api.v2 import allocation_guards as guards
+	from upande_packhouse.api.v2.sea_freight_plan import require_greenhouses
+
+	# a sea freight line is confirmed with the greenhouse that cuts it (the confirmation hook plans it there)
+	items = frappe.parse_json(lines) if isinstance(lines, str) else lines
+	chosen = require_greenhouses(items)
+	if chosen:
+		frappe.flags.sea_freight_greenhouses = {
+			**(frappe.flags.get("sea_freight_greenhouses") or {}),
+			**chosen,
+		}
 
 	if week:
 		# a week's lines go to the plan of their own delivery day
@@ -2528,15 +2606,64 @@ def unconfirm_line(sales_order_item: str):
 	from the expected harvest is dropped."""
 	frappe.only_for(PLANNERS)
 	_changed()
-	live = plans.live_confirmations(soi=sales_order_item)
+	return _unconfirm([sales_order_item], whole_mix=False)
+
+
+@frappe.whitelist(methods=["POST"])
+def unconfirm_lines(sales_order_items: str | list):
+	"""Take these order lines out of the plan (unconfirm_line for each); a line of a mixed box takes the whole
+	box with it -- a mix is confirmed and packed as one."""
+	frappe.only_for(PLANNERS)
+	_changed()
+	sois = frappe.parse_json(sales_order_items) if isinstance(sales_order_items, str) else sales_order_items
+	return _unconfirm(sois or [], whole_mix=True)
+
+
+@frappe.whitelist(methods=["POST"])
+def unconfirm_order(sales_order: str):
+	"""Take every confirmed line of an order out of the plan."""
+	frappe.only_for(PLANNERS)
+	_changed()
+	sois = frappe.get_all("Sales Order Item", filters={"parent": sales_order}, pluck="name")
+	return _unconfirm(sois, whole_mix=False)
+
+
+def _unconfirm(sois, whole_mix):
+	sois = [s for s in dict.fromkeys(sois) if s]
+	if whole_mix and sois:
+		keys = {
+			k
+			for k in frappe.get_all(
+				"Allocation Confirmation",
+				filters={
+					"sales_order_item": ("in", sois),
+					"status": ("in", plans.LIVE),
+					"mix_key": ("!=", ""),
+				},
+				pluck="mix_key",
+			)
+			if k
+		}
+		if keys:
+			sois += [
+				s
+				for s in frappe.get_all(
+					"Allocation Confirmation",
+					filters={"mix_key": ("in", list(keys)), "status": ("in", plans.LIVE)},
+					pluck="sales_order_item",
+					distinct=True,
+				)
+				if s not in sois
+			]
+	live = [c for soi in sois for c in plans.live_confirmations(soi=soi)]
 	for c in live:
 		plans.release_confirmation(c.name, "Manual")
 	for plan in {c.plan for c in live}:
 		plans.sequence_orders(plan)
-	so = frappe.db.get_value("Sales Order Item", sales_order_item, "parent")
-	if so:
+	orders = set(frappe.get_all("Sales Order Item", filters={"name": ("in", sois or [""])}, pluck="parent"))
+	for so in orders:
 		set_processing_farm(so)
-	return {"success": True, "released": len(live)}
+	return {"success": True, "released": len(live), "lines": len({c.sales_order_item for c in live})}
 
 
 PROCESSING_FIELD = "custom_processing_sales_farm"

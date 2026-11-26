@@ -205,6 +205,9 @@
   <div class="ph-pills" id="f-rose">
     <button data-value="all">All roses</button><button data-value="standard">Standards</button><button data-value="spray">Sprays</button>
   </div>
+  <div class="ph-pills" id="f-kind">
+    <button data-value="all">All orders</button><button data-value="export">Export</button><button data-value="qualityb">Quality B <span class="ph-tab__count" id="f-kind-qb"></span></button>
+  </div>
   <div id="f-team" aria-label="Teams"></div>
   <select class="ph-select" id="f-group" aria-label="Item group"><option value="">All item groups</option></select>
   <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search order, sales order, pick list"></label>
@@ -228,7 +231,7 @@
   const API = "upande_packhouse.api.v2.orders_workflow.";
   const today = PH.date.today();
   const tomorrow = PH.date.add(today, 1);
-  const st = PH.state({ from: tomorrow, to: tomorrow, pt: "", region: "", rose: "all", team: "", farm: "", group: "", stage: "all", view: "team", q: "" });
+  const st = PH.state({ from: tomorrow, to: tomorrow, pt: "", region: "", rose: "all", kind: "all", team: "", farm: "", group: "", stage: "all", view: "team", q: "" });
   let data = null;
   let seq = 0;
   const openSec = new Set();
@@ -244,6 +247,7 @@
   PH.pills("#f-view", st, "view");
   PH.regionPills("#f-region", st, "region", { all: "All" });
   PH.pills("#f-rose", st, "rose");
+  PH.pills("#f-kind", st, "kind");
   // One date filter: the Sales Order delivery date, from and to.
   PH.dateRange({ from: "#f-from", to: "#f-to", state: st });
   // a link from before kept "Packed today" on: the delivery dates are the filter now
@@ -294,7 +298,7 @@
     }
     return PH.call(API + "get_orders_workflow", {
       from_date: s.from, to_date: s.to, region: s.region, team: s.team, rose_type: s.rose, item_group: s.group,
-      stage: s.stage, view: s.view === "opl" ? "team" : s.view, packed_today: s.pt === "1" ? 1 : 0,
+      order_kind: s.kind, stage: s.stage, view: s.view === "opl" ? "team" : s.view, packed_today: s.pt === "1" ? 1 : 0,
     }, { silent: background }).then((m) => {
       if (my !== seq) return;
       if (!m || m.success === false) throw new Error((m && m.error) || "Could not load");
@@ -496,6 +500,7 @@
   function renderStages() {
     const el = document.getElementById("stages"), cur = st.get("stage"), c = data.stage_counts || {};
     el.hidden = false;
+    document.getElementById("f-kind-qb").textContent = n(data.quality_b_orders);
     PH.set(el, STAGES.map(([id, label]) => PH.html`<button class="ph-tab${cur === id ? " is-on" : ""}" type="button" data-stage="${id}">${label}<span class="ph-tab__count">${n(c[id])}</span></button>`).join(""));
   }
 

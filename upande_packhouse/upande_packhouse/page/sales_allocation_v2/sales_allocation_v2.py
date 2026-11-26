@@ -106,8 +106,9 @@ def _get_production_config():
 def _read_production_config():
 	ps = frappe.get_cached_doc("Production Settings")
 
-	discard_age = ps.discard_age or 5
-	amber_time = ps.amber_time or 3
+	discard_age = flt(ps.discard_age)
+	# exactly as set in Production Settings: 0 means every longer bucket may be downgraded without approval
+	amber_time = flt(ps.amber_time)
 
 	farm_config = {}  # farm -> { sales_shelf, max_allocation_age }
 	farms_by_location = {}  # location -> [farm, ...]
@@ -135,7 +136,7 @@ def _read_production_config():
 		if row.enabled:
 			farm_config[row.farm] = {
 				"sales_shelf": int(row.sales_shelf or 0),
-				"max_allocation_age": int(row.max_allocation_age or 5),
+				"max_allocation_age": flt(row.max_allocation_age),
 				# .get(): `Shelf Locations` is an orphan doctype -- no app in the
 				# bench ships it (the directory is empty), so its columns vary by
 				# site and `cooling_hours` is simply absent on some. Attribute
@@ -329,7 +330,9 @@ def get_location_config():
 					{
 						"farm": f,
 						"sales_shelf": farm_config.get(f, {}).get("sales_shelf", 0),
-						"max_allocation_age": farm_config.get(f, {}).get("max_allocation_age", 5),
+						"max_allocation_age": farm_config.get(f, {}).get(
+							"max_allocation_age", _get_production_config()["discard_age"]
+						),
 					}
 					for f in farms
 				],
@@ -497,6 +500,10 @@ def get_pending_sales_orders(
 		"so.status NOT IN ('Completed', 'Closed', 'Cancelled')",
 		"IFNULL(so.order_type, '') != 'Shopping Cart'",
 	]
+	# Sea freight orders are harvested for the order and planned by greenhouse (api/v2/sea_freight_plan), never
+	# allocated from the shelf
+	if frappe.db.has_column("Sales Order", "custom_mode_of_transport"):
+		date_conditions.append("IFNULL(so.custom_mode_of_transport, '') != 'Sea Freight'")
 	params: dict = {}
 
 	if start_date and end_date:
@@ -1420,7 +1427,10 @@ def get_sales_order_items_with_buckets(
 	if not active_farms:
 		active_farms = location_farms
 
-	farm_max_age = {f: farm_config.get(f, {}).get("max_allocation_age", 5) for f in active_farms}
+	farm_max_age = {
+		f: farm_config.get(f, {}).get("max_allocation_age", _get_production_config()["discard_age"])
+		for f in active_farms
+	}
 
 	# Where an in-transit bucket is heading: this location's sales-shelf farm,
 	# the same value _allocate_stock_with_buckets_impl decides `needs_transfer`
@@ -1530,7 +1540,11 @@ def get_sales_order_items_with_buckets(
 	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	buckets = _shelf_buckets(item_codes, active_farms, discard_age)
 
-	buckets = [b for b in buckets if b["age_days"] <= farm_max_age.get(b["shelf_farm"], 5)]
+	buckets = [
+		b
+		for b in buckets
+		if b["age_days"] <= farm_max_age.get(b["shelf_farm"], _get_production_config()["discard_age"])
+	]
 
 	# ── Exclude buckets still cooling: fewer hours in the cold store than this farm's cooling_hours
 	# (Shelf Locations, Production Settings), counted from when the bucket was received into a cold store,
@@ -2015,7 +2029,9 @@ def get_bucket_visibility_diagnostics(
 	for b in rows:
 		b_cm = _parse_cm(b["stem_length"])
 		is_sales_shelf = farm_config.get(b["shelf_farm"], {}).get("sales_shelf", 0)
-		farm_max_age = farm_config.get(b["shelf_farm"], {}).get("max_allocation_age", 5)
+		farm_max_age = farm_config.get(b["shelf_farm"], {}).get(
+			"max_allocation_age", _get_production_config()["discard_age"]
+		)
 		available_qty = max(0, (b["stems"] or 0) - (b["allocated_qty"] or 0))
 		waiting = [
 			(so, q)
@@ -4799,7 +4815,7 @@ def _replacement_candidates(anchor, farm, needed, limit=1):
 	if quality_b.is_quality_b_opl(anchor.get("parent")):
 		return quality_b.replacement_candidates(anchor, farm, needed, limit=limit)
 	config = _get_production_config()
-	discard_age = flt(config.get("discard_age") or 5)
+	discard_age = flt(config["discard_age"])
 	max_age = flt(config.get("farm_config", {}).get(farm, {}).get("max_allocation_age") or discard_age)
 	# The order line's length, not the replaced bucket's: a replacement obeys the order.
 	order_length = _order_length(anchor)
@@ -5553,7 +5569,9 @@ def get_farms_for_location(location: str | None):
 		{
 			"farm": f,
 			"sales_shelf": farm_config.get(f, {}).get("sales_shelf", 0),
-			"max_allocation_age": farm_config.get(f, {}).get("max_allocation_age", 5),
+			"max_allocation_age": farm_config.get(f, {}).get(
+				"max_allocation_age", _get_production_config()["discard_age"]
+			),
 		}
 		for f in farms
 	]

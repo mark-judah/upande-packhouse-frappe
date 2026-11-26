@@ -17,7 +17,7 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import add_days, cint, date_diff, flt, getdate, today
 
 ORDER_TYPE = "Shopping Cart"
 
@@ -242,6 +242,89 @@ def grade_b_buckets(item_code, farms):
 	return out
 
 
+def aged_stock(farms=None, delivery_date=None):
+	"""The shelf stock a Quality B order may take, per shelf bucket row (core.stock.bucket_rows) with `qb_free`:
+	a bucket on a discard request (moved to Grade B, or queued for discard) gives its stems no order holds; any
+	other bucket gives its free stems once it is at or past its variety's discard age (Production Settings) on
+	the processing day -- the day before `delivery_date`, else today."""
+	from upande_quality.upande_quality.doctype.production_settings.production_settings import (
+		discard_age_resolver,
+	)
+
+	from upande_packhouse.api.v2.core import stock
+
+	age_for = discard_age_resolver()
+	ahead = max(0, date_diff(add_days(getdate(delivery_date), -1), today())) if delivery_date else 0
+	out = []
+	for r in stock.bucket_rows(farms=farms):
+		if r.in_discard_request:
+			stems = flt(r.stems) - flt(r.allocated_in_held)
+		elif cint(r.age_days) + ahead >= flt(age_for(r.variety)):
+			stems = flt(r.free)
+		else:
+			continue
+		if stems > 0:
+			r.qb_free = stems
+			out.append(r)
+	return out
+
+
+def quality_b_buckets(item_code, farms, aged):
+	"""A line's buckets: Grade B ones (grade_b_buckets, from their Grade B warehouse) and the other buckets of
+	`aged` (aged_stock) of the variety, from where they stand."""
+	gb = grade_b_buckets(item_code, farms)
+	seen = {(str(b["bucket_id"]).upper(), b["stem_length"] or "") for b in gb}
+	out = list(gb)
+	for r in aged:
+		key = (str(r.bucket_id).upper(), r.stem_length or "")
+		if r.variety != item_code or r.shelf_farm not in farms or key in seen:
+			continue
+		seen.add(key)
+		out.append(
+			{
+				"bucket_id": r.bucket_id,
+				"farm": r.shelf_farm,
+				"shelf": r.shelf,
+				"stem_length": r.stem_length,
+				"warehouse": None,
+				"free": r.qb_free,
+				"moved_on": r.age_anchor,
+			}
+		)
+	return out
+
+
+def sync_opl_team(sales_order_item, team):
+	"""A Quality B line confirmed (or revised) to a team on Allocation Planning: its pick list goes to that
+	team."""
+	if not (sales_order_item and team):
+		return
+	row = frappe.db.get_value("Sales Order Item", sales_order_item, ["parent", "custom_opl"], as_dict=True)
+	if not row or not row.custom_opl:
+		return
+	if frappe.db.get_value("Sales Order", row.parent, "order_type") != ORDER_TYPE:
+		return
+	was = frappe.db.get_value("Order Pick List", row.custom_opl, "team")
+	if was == team:
+		return
+	frappe.db.set_value("Order Pick List", row.custom_opl, "team", team, update_modified=False)
+	from upande_packhouse.allocation_log import log
+
+	log(
+		"Revised",
+		_("Quality B pick list {0} moved from {1} to {2} on the plan.").format(
+			row.custom_opl, was or "-", team
+		),
+		sales_order=row.parent,
+		team=team,
+	)
+
+
+def confirmation_after_insert(doc, method=None):
+	"""Allocation Confirmation after_insert: a Quality B line's pick list follows the team it is planned for."""
+	sync_opl_team(doc.sales_order_item, doc.team)
+
+
 def pick_team(sales_farm, delivery_date):
 	"""The Quality B team of `sales_farm` with the fewest Quality B stems waiting for `delivery_date`, else None."""
 	from upande_packhouse.api.v2.allocation_teams import team_sales_farms
@@ -283,13 +366,19 @@ def make_pick_lists(doc):
 			).format(sales_farm)
 		)
 
+	from upande_packhouse.allocation_plan import team_for_line
+
+	aged = aged_stock(farms, doc.delivery_date)
+	teams = {}
 	allocations, sources, short = [], {}, []
 	for line in doc.items:
 		need = flt(line.stock_qty) or flt(line.qty) * flt(line.conversion_factor or 1)
 		# stems go out in whole bunches of the line's bunch size, as on every pick list
 		bunch = max(1, cint(line.conversion_factor or 1))
+		# the team the line is planned for on Allocation Planning, else the least loaded Quality B team
+		teams[line.name] = team_for_line(line.name) or team
 		buckets = sorted(
-			grade_b_buckets(line.item_code, farms),
+			quality_b_buckets(line.item_code, farms, aged),
 			key=lambda b: (b["farm"] != sales_farm, str(b["moved_on"] or "")),
 		)
 		# a remote farm's bucket another order has requested whole travels for that order: not this one's
@@ -315,7 +404,8 @@ def make_pick_lists(doc):
 					"_farm": b["farm"],
 				}
 			)
-			sources[str(b["bucket_id"]).upper()] = b["warehouse"]
+			if b["warehouse"]:
+				sources[str(b["bucket_id"]).upper()] = b["warehouse"]
 			need -= take
 		if need > 0:
 			short.append("{0}: {1} stems short".format(line.item_code, int(need)))
@@ -328,7 +418,10 @@ def make_pick_lists(doc):
 	frappe.flags.quality_b_sources = sources
 	try:
 		sa._allocate_stock_with_buckets_impl(
-			doc.name, allocations, location, {a["sales_order_item"]: team for a in allocations}
+			doc.name,
+			allocations,
+			location,
+			{a["sales_order_item"]: teams[a["sales_order_item"]] for a in allocations},
 		)
 	finally:
 		frappe.flags.quality_b_sources = None
@@ -590,6 +683,14 @@ def _swap_row(opl, row, b, why=None):
 		details={"old_bucket": old, "new_bucket": b["bucket_id"], "grade_b": 1},
 	)
 	return old, qty
+
+
+def quality_b_opls(opls):
+	"""The Quality B pick lists among `opls`."""
+	opls = [o for o in opls or () if o]
+	if not opls:
+		return []
+	return frappe.get_all("Order Pick List", filters={"name": ["in", opls], "quality_b": 1}, pluck="name")
 
 
 def is_quality_b_opl(opl_name):

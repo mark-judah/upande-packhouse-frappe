@@ -21,9 +21,10 @@ Numbers (stems unless the key says *_boxes):
 Roll-ups are sums of items on the server; KPI = sum of sections = sum of items.
 
 Date meaning: Sales Order delivery_date (README rule 4); submitted orders.
-Farm / region: the ORDER's farm, region.order_farm_sql (Sales Order.farm,
-custom_farm, else Order Pick List.farm) -- README rule 6 as amended; orders
-with no farm anywhere drop out while a farm/region filter is on. The pick
+Farm / region: the SALES farm that packs the row -- its team's sales farm (the pick list's team, else the
+team Allocation Planning gave the line), else the order's processing sales farm, else the ORDER's farm
+(region.order_farm_sql: Sales Order.farm, custom_farm, else Order Pick List.farm). A Chepsito team packing a
+Kapkolia order is Chepsito's. Rows with no farm anywhere drop out while a farm/region filter is on. The pick
 list farm (Pick List Item origin) is shown per row as "origin_farm" only. Team: the pick list's team; unallocated lines drop out while a
 team is chosen. The pipeline is attached to every line of the date range
 first and the filters applied afterwards, so a Delivery Note row without
@@ -36,6 +37,7 @@ from typing import Any
 import frappe
 from frappe.utils import getdate, today
 
+from upande_packhouse import quality_b
 from upande_packhouse.api.v2.core import boxes as bx
 from upande_packhouse.api.v2.core import pipeline
 from upande_packhouse.api.v2.core import region as region_mod
@@ -635,6 +637,7 @@ def get_orders_workflow(
 	stage: Any = None,
 	view: Any = None,
 	packed_today: Any = None,
+	order_kind: Any = None,
 ):
 	"""Lines grouped by team (view=team, default) or customer (view=customer), plus KPIs.
 
@@ -713,6 +716,8 @@ def get_orders_workflow(
 		)
 	}
 
+	plan_team = {}
+
 	def order_farm(so, opl=None):
 		"""The ORDER's farm (README rule 6): Sales Order.farm, custom_farm, else the pick list's."""
 		f = so_farm.get(so)
@@ -720,8 +725,30 @@ def get_orders_workflow(
 			f = sorted(opl_farm[opl])[0]
 		return f or ""
 
-	def farm_ok(so, opl=None):
-		return farms is None or order_farm(so, opl) in farms
+	from upande_packhouse.api.v2.allocation_teams import team_sales_farms
+
+	team_home = team_sales_farms()
+	so_psf = (
+		{
+			r.name: r.custom_processing_sales_farm
+			for r in frappe.get_all(
+				"Sales Order",
+				filters={"name": ["in", list({ln.parent for ln in lines}) or [""]]},
+				fields=["name", "custom_processing_sales_farm"],
+			)
+			if r.custom_processing_sales_farm
+		}
+		if frappe.db.has_column("Sales Order", "custom_processing_sales_farm")
+		else {}
+	)
+
+	def sales_farm(so, opl=None, soi=None):
+		"""The sales farm that packs the row: its team's, else the order's processing farm, else the order's farm."""
+		team_ = (opls[opl].get("team") if opl and opl in opls else plan_team.get(soi)) or ""
+		return team_home.get(team_) or so_psf.get(so) or order_farm(so, opl)
+
+	def farm_ok(so, opl=None, soi=None):
+		return farms is None or sales_farm(so, opl, soi) in farms
 
 	cells = _pairs(list(opls))
 	# pick lists with buckets still coming from a remote farm
@@ -751,7 +778,7 @@ def get_orders_workflow(
 	# a line with no pick list yet carries the team Allocation Planning gave it: the team filter finds it too
 	from upande_packhouse.allocation_plan import planned_teams
 
-	plan_team = planned_teams([ln.name for ln in lines if not ln.opls])
+	plan_team.update(planned_teams([ln.name for ln in lines if not ln.opls]))
 
 	# One item per (line, pick list); a line with none is one item of its own.
 	items = []
@@ -760,14 +787,14 @@ def get_orders_workflow(
 			o
 			for o in ln.opls
 			if (not teams or (opls[o].get("team") or "") in teams)
-			and farm_ok(ln.parent, o)
+			and farm_ok(ln.parent, o, ln.name)
 			and (packed_opls is None or o in packed_opls)
 		)
 		if not ln.opls:
 			if (
 				(teams and plan_team.get(ln.name) not in teams)
 				or packed_opls is not None
-				or not farm_ok(ln.parent)
+				or not farm_ok(ln.parent, None, ln.name)
 			):
 				continue
 			in_scope = [None]
@@ -793,13 +820,14 @@ def get_orders_workflow(
 				"item_name": ln.item_name,
 				"item_group": ln.item_group,
 				"rose_type": ln.rose_type,
+				"quality_b": (ln.order_type or "") == quality_b.ORDER_TYPE,
 				"length": ln.custom_length,
 				"box_type": ln.custom_box_type,
 				"mix_name": ln.custom_mix_name,
 				# the physical boxes it shares with other lines of its order (core.boxes): what the page's
 				# Analysis counts boxes by, so its boxes are the Orders tile's
 				"box_key": "{0}|{1}".format(ln.parent, bx.box_key(ln)),
-				"farm": order_farm(ln.parent, o),
+				"farm": sales_farm(ln.parent, o, ln.name),
 				"origin_farm": ", ".join(sorted(opl_farm.get(o, set()))) if o else "",
 				"primary": primary,
 				"line_boxes": ln.boxes if primary else 0,
@@ -859,6 +887,15 @@ def get_orders_workflow(
 				+ i["sales_invoices"]
 			).lower()
 		]
+
+	# Quality B orders (webstore), counted in orders over every other filter; order_kind narrows to them or
+	# to every other order (export).
+	quality_b_orders = len({i["sales_order"] for i in items if i["quality_b"]})
+	order_kind = _s(order_kind)
+	if order_kind == "qualityb":
+		items = [i for i in items if i["quality_b"]]
+	elif order_kind == "export":
+		items = [i for i in items if not i["quality_b"]]
 
 	# Stage counts over every filter except the stage itself.
 	counts = {"all": len(items)}
@@ -972,6 +1009,7 @@ def get_orders_workflow(
 		"farms": farms,
 		"kpis": k,
 		"stage_counts": counts,
+		"quality_b_orders": quality_b_orders,
 		"sections": sections,
 	}
 

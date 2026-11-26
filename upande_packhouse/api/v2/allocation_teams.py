@@ -16,7 +16,7 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, getdate
+from frappe.utils import add_days, cint, flt, getdate
 
 from upande_packhouse import allocation_plan as plans
 from upande_packhouse.api.v2 import allocation_playground as pg
@@ -202,13 +202,31 @@ def sales_farm_query(
 	return [[n] for n in names[cint(start) : cint(start) + cint(page_len)]]
 
 
+def _with_plan_greenhouses(fn):
+	"""Sea freight lines on the summary carry their greenhouses (sea_freight_plan.with_plan_greenhouses), imported
+	late: that module imports the planning one, which imports this."""
+	import functools
+
+	@functools.wraps(fn)
+	def wrapper(*args, **kwargs):
+		from upande_packhouse.api.v2.sea_freight_plan import with_plan_greenhouses
+
+		return with_plan_greenhouses(fn)(*args, **kwargs)
+
+	return wrapper
+
+
 def team_sales_farms():
 	"""{team: its sales farm} (a team with none: its location's farm), read once per request."""
 	cached = getattr(frappe.local, "_team_sales_farms", None)
 	if cached is None:
+		# a site whose Packing Teams has no Sales Farm (or Location) column yet: whichever it has
+		fields = ["name"] + [
+			f for f in ("sales_farm", "location") if frappe.db.has_column("Packing Teams", f)
+		]
 		cached = {
-			r.name: r.sales_farm or r.location or ""
-			for r in frappe.get_all("Packing Teams", fields=["name", "sales_farm", "location"])
+			r.name: r.get("sales_farm") or r.get("location") or ""
+			for r in frappe.get_all("Packing Teams", fields=fields)
 		}
 		frappe.local._team_sales_farms = cached
 	return dict(cached)
@@ -652,7 +670,8 @@ def _add_workload(teams, day, crop_boxes, queues):
 	last box is packed, from the team's start time."""
 	from datetime import datetime, timedelta
 
-	people = team_people(day, [t["team"] for t in teams])
+	# the people at work on the processing day: a delivery day's boxes are packed the day before
+	people = team_people(add_days(day, -1), [t["team"] for t in teams])
 	rate = rates()
 	starts = {
 		name: _hhmm(start)
@@ -839,6 +858,7 @@ def get_real_stock_shortages(
 
 
 @frappe.whitelist()
+@_with_plan_greenhouses
 def get_confirmation_summary(
 	delivery_date: str | None = None,
 	farm: str | None = None,

@@ -372,15 +372,11 @@ class TestClosing(Base):
 
 
 class TestSetting(Base):
-	def test_default_is_four_and_override(self):
-		with patch.object(frappe.db, "get_single_value", return_value=None):
-			self.assertEqual(INA.inactive_days(), 4)
+	def test_reads_the_setting(self):
 		with patch.object(frappe.db, "get_single_value", return_value=0):
-			self.assertEqual(INA.inactive_days(), 4)
+			self.assertEqual(INA.inactive_days(), 0)
 		with patch.object(frappe.db, "get_single_value", return_value=9):
 			self.assertEqual(INA.inactive_days(), 9)
-		with patch.object(frappe.db, "get_single_value", side_effect=Exception("no column")):
-			self.assertEqual(INA.inactive_days(), 4)
 
 	def test_field_exists_on_production_settings_with_default_4(self):
 		if not frappe.db.exists("DocType", "Production Settings"):

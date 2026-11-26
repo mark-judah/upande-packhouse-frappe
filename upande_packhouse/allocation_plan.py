@@ -814,7 +814,7 @@ def convert_virtual(delivery_date=None, farm=None):
 
 def convert_virtual_job():
 	"""Scheduled every few minutes; does the work only when `allocation_conversion_minutes` have passed."""
-	minutes = cint(setting("allocation_conversion_minutes")) or 15
+	minutes = cint(setting("allocation_conversion_minutes"))
 	last = frappe.cache.get_value("allocation_convert_last")
 	now = now_datetime()
 	if last and (now - last).total_seconds() < minutes * 60:

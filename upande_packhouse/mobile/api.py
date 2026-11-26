@@ -3883,6 +3883,10 @@ def _schedule_blockers(opl_name, kind):
 		frappe.get_cached_doc("Production Settings").get(SEQUENCE_BYPASS[kind])
 	):
 		return None, 0, []
+	from upande_packhouse.api.quality_b_receive import quality_b_issue_bypass
+
+	if quality_b_issue_bypass(kind):
+		return None, 0, []
 	cur = frappe.db.sql(
 		"""SELECT pso.parent, pso.sequence, ps.team FROM `tabPackhouse Schedule Order` pso
 		JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
@@ -4035,9 +4039,8 @@ def _can_pack_waiting(stems, short, min_pct):
 
 
 def _pack_waiting_min_pct():
-	"""Production Settings > Pack While Waiting for a Replacement From (%); 50 until set."""
-	# A Float left empty reads 0: that is "not set", not "pack with nothing issued".
-	return flt(frappe.get_cached_doc("Production Settings").get("pack_waiting_replacement_pct")) or 50.0
+	"""Production Settings > Pack While Waiting for a Replacement From (%)."""
+	return flt(frappe.get_cached_doc("Production Settings").get("pack_waiting_replacement_pct"))
 
 
 def _pack_guide_plan(order_pick_list, sales_order):

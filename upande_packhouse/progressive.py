@@ -33,7 +33,7 @@ ROW_FIELDS = (
 
 def settings():
 	ps = frappe.get_cached_doc("Production Settings")
-	return cint(ps.get("progressive_issuing")), max(1, cint(ps.get("progressive_issuing_from_boxes")) or 10)
+	return cint(ps.get("progressive_issuing")), max(1, cint(ps.get("progressive_issuing_from_boxes")))
 
 
 def enabled():
