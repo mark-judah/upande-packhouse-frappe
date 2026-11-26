@@ -2606,15 +2606,64 @@ def unconfirm_line(sales_order_item: str):
 	from the expected harvest is dropped."""
 	frappe.only_for(PLANNERS)
 	_changed()
-	live = plans.live_confirmations(soi=sales_order_item)
+	return _unconfirm([sales_order_item], whole_mix=False)
+
+
+@frappe.whitelist(methods=["POST"])
+def unconfirm_lines(sales_order_items: str | list):
+	"""Take these order lines out of the plan (unconfirm_line for each); a line of a mixed box takes the whole
+	box with it -- a mix is confirmed and packed as one."""
+	frappe.only_for(PLANNERS)
+	_changed()
+	sois = frappe.parse_json(sales_order_items) if isinstance(sales_order_items, str) else sales_order_items
+	return _unconfirm(sois or [], whole_mix=True)
+
+
+@frappe.whitelist(methods=["POST"])
+def unconfirm_order(sales_order: str):
+	"""Take every confirmed line of an order out of the plan."""
+	frappe.only_for(PLANNERS)
+	_changed()
+	sois = frappe.get_all("Sales Order Item", filters={"parent": sales_order}, pluck="name")
+	return _unconfirm(sois, whole_mix=False)
+
+
+def _unconfirm(sois, whole_mix):
+	sois = [s for s in dict.fromkeys(sois) if s]
+	if whole_mix and sois:
+		keys = {
+			k
+			for k in frappe.get_all(
+				"Allocation Confirmation",
+				filters={
+					"sales_order_item": ("in", sois),
+					"status": ("in", plans.LIVE),
+					"mix_key": ("!=", ""),
+				},
+				pluck="mix_key",
+			)
+			if k
+		}
+		if keys:
+			sois += [
+				s
+				for s in frappe.get_all(
+					"Allocation Confirmation",
+					filters={"mix_key": ("in", list(keys)), "status": ("in", plans.LIVE)},
+					pluck="sales_order_item",
+					distinct=True,
+				)
+				if s not in sois
+			]
+	live = [c for soi in sois for c in plans.live_confirmations(soi=soi)]
 	for c in live:
 		plans.release_confirmation(c.name, "Manual")
 	for plan in {c.plan for c in live}:
 		plans.sequence_orders(plan)
-	so = frappe.db.get_value("Sales Order Item", sales_order_item, "parent")
-	if so:
+	orders = set(frappe.get_all("Sales Order Item", filters={"name": ("in", sois or [""])}, pluck="parent"))
+	for so in orders:
 		set_processing_farm(so)
-	return {"success": True, "released": len(live)}
+	return {"success": True, "released": len(live), "lines": len({c.sales_order_item for c in live})}
 
 
 PROCESSING_FIELD = "custom_processing_sales_farm"
