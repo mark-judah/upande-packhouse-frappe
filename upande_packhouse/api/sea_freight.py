@@ -101,7 +101,12 @@ def orders():
 	harvested for the order, whether harvesting is done and the order received, and its pick lists."""
 	extra = [
 		f
-		for f in ("custom_sea_freight_harvested", "custom_sea_freight_received", "custom_order_name")
+		for f in (
+			"custom_sea_freight_harvested",
+			"custom_sea_freight_received",
+			"custom_order_name",
+			"custom_allocation_sequence",
+		)
 		if _has(f)
 	]
 	sos = frappe.get_all(
@@ -118,7 +123,29 @@ def orders():
 	)
 	if not sos:
 		return {"orders": []}
+	# expected in the order they are harvested: Allocation Planning's sequence for each delivery day (the ones not
+	# planned yet last); one may still arrive sooner and is received whenever it comes
+	sos.sort(
+		key=lambda o: (
+			str(o.delivery_date or ""),
+			int(o.get("custom_allocation_sequence") or 0) <= 0,
+			int(o.get("custom_allocation_sequence") or 0),
+			o.name,
+		)
+	)
 	names = [s.name for s in sos]
+	teams = {}
+	for r in frappe.get_all(
+		"Allocation Confirmation",
+		filters={
+			"sales_order": ["in", names],
+			"status": ["in", ["Planned", "Reserved", "Partly Fulfilled", "Broken", "Fulfilled"]],
+			"team": ["is", "set"],
+		},
+		fields=["sales_order", "team"],
+		order_by="modified desc",
+	):
+		teams.setdefault(r.sales_order, r.team)
 	lines = frappe.get_all(
 		"Sales Order Item",
 		filters={"parent": ["in", names]},
@@ -179,6 +206,8 @@ def orders():
 				"customer": so.customer_name or so.customer,
 				"delivery_date": str(so.delivery_date or ""),
 				"status": so.status,
+				"sequence": int(so.get("custom_allocation_sequence") or 0),
+				"team": teams.get(so.name, ""),
 				"harvest_done": bool(so.get("custom_sea_freight_harvested")),
 				"received": so.name in received_orders,
 				"ordered_stems": sum(i["ordered_stems"] for i in items),
