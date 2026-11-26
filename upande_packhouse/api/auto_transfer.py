@@ -34,7 +34,6 @@ from upande_packhouse.permissions import STAFF, guard
 
 SETTING = "auto_remote_transfer_scheduling"
 FREQUENCY = "auto_transfer_frequency"
-DEFAULT_FREQUENCY_MINUTES = 10
 #: A cron tick lands a little after the interval (the last run's own duration);
 #: without slack a 10-minute setting would drift to every 15.
 TICK_SLACK_SECONDS = 90
@@ -49,9 +48,7 @@ def enabled():
 
 
 def frequency_minutes():
-	return frappe.utils.cint(frappe.get_cached_doc("Production Settings").get(FREQUENCY)) or (
-		DEFAULT_FREQUENCY_MINUTES
-	)
+	return frappe.utils.cint(frappe.get_cached_doc("Production Settings").get(FREQUENCY))
 
 
 def status():
