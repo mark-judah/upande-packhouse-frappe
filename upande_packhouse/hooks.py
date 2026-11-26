@@ -287,6 +287,10 @@ doc_events = {
 			"upande_packhouse.stock_entry_cost_center.apply_post_harvest_cost_center",
 		]
 	},
+	"Allocation Confirmation": {
+		# a Quality B line planned for a team: its pick list goes to that team
+		"after_insert": "upande_packhouse.quality_b.confirmation_after_insert",
+	},
 	"Sales Order": {
 		# A Quality B (webstore, Shopping Cart) order gets its pick lists from Grade B buckets.
 		"on_submit": "upande_packhouse.quality_b.on_submit",

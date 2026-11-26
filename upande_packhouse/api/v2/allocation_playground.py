@@ -40,7 +40,7 @@ from frappe import _
 from frappe.utils import add_days, cint, flt, getdate, today
 
 from upande_packhouse import allocation_plan as plans
-from upande_packhouse import availability
+from upande_packhouse import availability, quality_b
 from upande_packhouse.api.v2 import allocation_forecast as forecasts
 from upande_packhouse.api.v2.core import pipeline, received, stock
 
@@ -306,7 +306,9 @@ def _forecast_rows(variety, year, week, farms):
 
 def _forecast_rows_for(varieties, year, week, farms):
 	"""{variety: [{grade, farm, revised, manual}]} of the week's forecast, by grade and growing farm. `varieties`
-	None: every variety forecast that week."""
+	None: every variety forecast that week. Quality B (the Orders filter) is planned from the shelf only: none."""
+	if _order_kind() == "qualityb":
+		return defaultdict(list)
 	conds, params = [], {"y": year, "w": week}
 	if varieties is not None:
 		conds.append("f.variety IN %(v)s")
@@ -490,8 +492,22 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 		)
 
 	farms = _stock_farms(farm)
-	# every variety's stock rows once per request: the board, the checks and each day of a week read the same shelf
 	wanted = set(varieties) if varieties else None
+	if _order_kind() == "qualityb":
+		# Quality B is packed from the shelf stock at or past its discard age on the processing day: no
+		# received-not-shelved stock, no harvest, no forecast
+		key = ("qb_rows", tuple(farms) if farms is not None else None, str(day or ""))
+		for r in _memo(key, lambda: _shared(key, lambda: quality_b.aged_stock(farms, day))):
+			if wanted is not None and r.variety not in wanted:
+				continue
+			p = entry((r.variety, r.stem_length or ""))
+			p["free"] += r.qb_free
+			p["buckets"] += 1
+			p["oldest"] = max(p["oldest"], r.age_days or 0)
+			p["by_farm"][r.shelf_farm] = p["by_farm"].get(r.shelf_farm, 0.0) + r.qb_free
+		_take_outstanding(out, farms)
+		return out
+	# every variety's stock rows once per request: the board, the checks and each day of a week read the same shelf
 	every = _memo(
 		("bucket_rows", tuple(farms) if farms is not None else None),
 		lambda: _shared(
@@ -523,8 +539,19 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 		if r.age_days >= amber:
 			p["old"] += free
 			p["old_by_farm"][r.farm] = p["old_by_farm"].get(r.farm, 0.0) + free
-	# stems the plan confirmed from stock and not allocated yet are no longer free: off the shelf first, then off
-	# what is received and waiting for a shelf
+	_take_outstanding(out, farms)
+	if day and varieties:
+		cut = getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
+		for key, h in received.harvested_day(cut, _growing_farms(farm), varieties).items():
+			p = entry(key)
+			p["harvested"] = h["harvested"]
+			p["on_the_way"] = h["not_received"]
+	return out
+
+
+def _take_outstanding(out, farms):
+	"""Stems the plan confirmed from stock and not allocated yet are no longer free: off the shelf first, then
+	off what is received and waiting for a shelf."""
 	for (f, variety, length), stems in plans.real_outstanding(farms).items():
 		p = out.get((variety, length))
 		if not p or stems <= 0:
@@ -536,13 +563,6 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 		p["received"] -= rest
 		p["rec_by_farm"][f] = max(0.0, p["rec_by_farm"].get(f, 0.0) - rest)
 		p["held"] += take + rest
-	if day and varieties:
-		cut = getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
-		for key, h in received.harvested_day(cut, _growing_farms(farm), varieties).items():
-			p = entry(key)
-			p["harvested"] = h["harvested"]
-			p["on_the_way"] = h["not_received"]
-	return out
 
 
 def expected_for(variety, length, day, farm, s):
@@ -1141,7 +1161,10 @@ def _forecast_supply(days, farm, only=None):
 	prod_today = defaultdict(float)
 	for (year, week), hs in weeks.items():
 		week_rows = (
-			_shared(("fc_rows", year, week, farms), lambda: _forecast_rows_for(None, year, week, farms))
+			_shared(
+				("fc_rows", year, week, farms, _order_kind()),
+				lambda: _forecast_rows_for(None, year, week, farms),
+			)
 			if varieties is None
 			else _forecast_rows_for(varieties, year, week, farms)
 		)

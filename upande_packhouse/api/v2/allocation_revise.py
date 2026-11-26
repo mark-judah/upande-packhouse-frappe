@@ -495,6 +495,10 @@ def _move_line_team(soi, team, team_was):
 			pluck="name",
 		):
 			frappe.db.set_value("Confirmed Stems", name, sets, update_modified=False)
+	from upande_packhouse import quality_b
+
+	for s in sois:
+		quality_b.sync_opl_team(s, team)
 	for s in sois:
 		log(
 			"Revised",
