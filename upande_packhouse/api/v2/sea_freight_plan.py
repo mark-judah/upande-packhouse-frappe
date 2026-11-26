@@ -197,6 +197,68 @@ def with_greenhouses(fn):
 	return wrapper
 
 
+def plan_greenhouses(sois):
+	"""{so item: [{greenhouse, label, stems}]}: the stems each line's plan cuts in each greenhouse."""
+	sois = [s for s in dict.fromkeys(sois or ()) if s]
+	if not sois or not frappe.db.table_exists(PLAN):
+		return {}
+	rows = frappe.db.sql(
+		"""SELECT p.sales_order_item AS soi, r.greenhouse, r.stems, w.warehouse_name AS label
+		FROM `tabSea Freight Greenhouse Plan` p
+		JOIN `tabSea Freight Greenhouse Plan Row` r ON r.parent = p.name
+		LEFT JOIN `tabWarehouse` w ON w.name = r.greenhouse
+		WHERE p.sales_order_item IN %(s)s ORDER BY r.stems DESC""",
+		{"s": tuple(sois)},
+		as_dict=True,
+	)
+	out = {}
+	for r in rows:
+		out.setdefault(r.soi, []).append(
+			{"greenhouse": r.greenhouse, "label": r.label or r.greenhouse, "stems": flt(r.stems)}
+		)
+	return out
+
+
+def with_plan_greenhouses(fn):
+	"""The Confirmation summary under the Orders filter's Sea freight: every line ("soi") carries the stems its
+	plan cuts in each greenhouse (`gh`), and every order (a dict with "items") the same summed over its lines."""
+	import functools
+
+	@functools.wraps(fn)
+	def wrapper(*args, **kwargs):
+		out = fn(*args, **kwargs)
+		if (frappe.form_dict or {}).get("order_kind") != "seafreight":
+			return out
+		lines, orders = [], []
+
+		def walk(x):
+			if isinstance(x, dict):
+				if x.get("soi"):
+					lines.append(x)
+				if isinstance(x.get("items"), list):
+					orders.append(x)
+				for v in x.values():
+					walk(v)
+			elif isinstance(x, list | tuple):
+				for v in x:
+					walk(v)
+
+		walk(out)
+		gh = plan_greenhouses([x["soi"] for x in lines])
+		for x in lines:
+			x["gh"] = gh.get(x["soi"], [])
+		for o in orders:
+			tot = {}
+			for x in o["items"]:
+				for g in x.get("gh") or []:
+					t = tot.setdefault(g["greenhouse"], {**g, "stems": 0.0})
+					t["stems"] += g["stems"]
+			o["gh"] = sorted(tot.values(), key=lambda g: -g["stems"])
+		return out
+
+	return wrapper
+
+
 def require_greenhouses(items):
 	"""Allocation Planning confirm: every sea freight line confirmed must name its greenhouse (one growing its
 	variety). Returns {so item: greenhouse} for the confirmation hook to plan the line to."""

@@ -202,6 +202,20 @@ def sales_farm_query(
 	return [[n] for n in names[cint(start) : cint(start) + cint(page_len)]]
 
 
+def _with_plan_greenhouses(fn):
+	"""Sea freight lines on the summary carry their greenhouses (sea_freight_plan.with_plan_greenhouses), imported
+	late: that module imports the planning one, which imports this."""
+	import functools
+
+	@functools.wraps(fn)
+	def wrapper(*args, **kwargs):
+		from upande_packhouse.api.v2.sea_freight_plan import with_plan_greenhouses
+
+		return with_plan_greenhouses(fn)(*args, **kwargs)
+
+	return wrapper
+
+
 def team_sales_farms():
 	"""{team: its sales farm} (a team with none: its location's farm), read once per request."""
 	cached = getattr(frappe.local, "_team_sales_farms", None)
@@ -844,6 +858,7 @@ def get_real_stock_shortages(
 
 
 @frappe.whitelist()
+@_with_plan_greenhouses
 def get_confirmation_summary(
 	delivery_date: str | None = None,
 	farm: str | None = None,
