@@ -1540,7 +1540,11 @@ def get_sales_order_items_with_buckets(
 	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	buckets = _shelf_buckets(item_codes, active_farms, discard_age)
 
-	buckets = [b for b in buckets if b["age_days"] <= farm_max_age.get(b["shelf_farm"], 5)]
+	buckets = [
+		b
+		for b in buckets
+		if b["age_days"] <= farm_max_age.get(b["shelf_farm"], _get_production_config()["discard_age"])
+	]
 
 	# ── Exclude buckets still cooling: fewer hours in the cold store than this farm's cooling_hours
 	# (Shelf Locations, Production Settings), counted from when the bucket was received into a cold store,
