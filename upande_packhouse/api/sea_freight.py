@@ -308,6 +308,24 @@ def receive(sales_order: str, buckets: str | list | None = None):
 
 
 @frappe.whitelist(methods=["GET"])
+def marks():
+	"""The open sea freight orders and their submitted pick lists: the Sea Freight banner on the packhouse app's
+	screens after packing (box labels, loading, dispatch)."""
+	rows = frappe.db.sql(
+		"""SELECT so.name AS so, opl.name AS opl FROM `tabSales Order` so
+		LEFT JOIN `tabOrder Pick List` opl ON opl.sales_order = so.name AND opl.docstatus = 1
+		WHERE so.docstatus = 1 AND so.custom_mode_of_transport = %s
+		  AND so.status NOT IN ('Completed', 'Closed', 'Cancelled')""",
+		(SEA_FREIGHT,),
+		as_dict=True,
+	)
+	return {
+		"sales_orders": sorted({r.so for r in rows}),
+		"pick_lists": sorted({r.opl for r in rows if r.opl}),
+	}
+
+
+@frappe.whitelist(methods=["GET"])
 def pick_lists():
 	"""Names of the submitted pick lists of sea freight orders that are still open."""
 	return frappe.db.sql_list(
