@@ -5,7 +5,10 @@
 Every allocation step and every release looks rows up by order line (Bucket Allocations, Pick List Item), by
 order (Order Pick List, Bucket Allocations) and by variety (Shelf Item). None of those columns was indexed, so
 each lookup read the whole table -- once per line, often per bucket -- which is most of why Allocate's steps were
-slow and a release ran past the request's time before its pick lists were made."""
+slow and a release ran past the request's time before its pick lists were made.
+
+The desk's unread-notification count (every page load) filters Notification Log by user and read, and stock
+reports filter Stock Ledger Entry by posting date alone; both scanned millions of rows."""
 
 import frappe
 
@@ -17,6 +20,8 @@ INDEXES = (
 	("Order Pick List", ["sales_order"], "idx_opl_order"),
 	("Shelf Item", ["variety"], "idx_shelf_item_variety"),
 	("Bucket Allocation Status", ["item_code", "bucket_id"], "idx_bas_item"),
+	("Notification Log", ["for_user", "read"], "idx_nl_user_read"),
+	("Stock Ledger Entry", ["posting_date"], "idx_sle_posting_date"),
 )
 
 
@@ -27,4 +32,4 @@ def ensure_allocation_indexes():
 		# nosemgrep: frappe-sql-format-injection -- the doctype is one of INDEXES' fixed names, never request data
 		existing = {r[2] for r in frappe.db.sql(f"SHOW INDEX FROM `tab{doctype}`")}
 		if name not in existing:
-			frappe.db.add_index(doctype, columns, name)
+			frappe.db.add_index(doctype, [f"`{c}`" for c in columns], name)
