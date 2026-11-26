@@ -6,7 +6,7 @@
 <div class="apx" id="pg-head" data-default-date="{{ default_delivery_date }}">
 <header class="apx-bar">
   <div class="apx-brand"><span class="apx-eyebrow">Packhouse</span><span class="apx-name">Allocation Planning</span></div>
-  <nav class="apx-nav" id="pg-modes" aria-label="Planning screens"><button type="button" data-value="unconfirmed">Plan &amp; checks</button><button type="button" data-value="sequence">Team sequence</button><button type="button" data-value="summary">Confirmation summary</button><button type="button" data-value="people">Attendance</button><button type="button" data-value="crops">Team crops</button></nav>
+  <nav class="apx-nav" id="pg-modes" aria-label="Planning screens"><button type="button" data-value="unconfirmed">Plan &amp; checks</button><button type="button" data-value="crops">Team crops</button><button type="button" data-value="summary">Confirmation summary</button><button type="button" data-value="sequence">Team sequence</button><button type="button" data-value="people">Attendance</button></nav>
 </header>
 <div class="apx-titlerow">
   <div><h1 class="apx-h1" id="pg-title">Plan</h1><div class="apx-sub" id="pg-sub"></div></div>
@@ -14,8 +14,9 @@
     <label class="apx-pill">Sales farm<select id="pg-farm" aria-label="Sales farm">{% for f in sales_farms %}<option value="{{ f }}"{% if f == default_farm %} selected{% endif %}>{{ f }}</option>{% endfor %}</select></label>
     <label class="apx-pill" id="pg-date-wrap">Delivery<input type="date" id="pg-date" aria-label="Delivery date"></label>
     <label class="apx-pill" id="pg-week-wrap">Week<select id="pg-week" aria-label="Week"></select></label>
+    <label class="apx-pill" id="pg-okind-wrap">Orders<select id="pg-okind" aria-label="Orders"><option value="">Export</option><option value="qualityb">Quality B</option></select></label>
     <label class="apx-pill" id="pg-sumteam-wrap" hidden>Team<select id="pg-sumteam" aria-label="Team"><option value="">All teams</option></select></label>
-    <label class="apx-pill" id="pg-sumq-wrap" hidden><input type="search" id="pg-sumq" placeholder="Order, ID, variety, mix" aria-label="Search orders, order IDs, varieties and mixes" autocomplete="off"></label>
+    <label class="apx-pill" id="pg-sumq-wrap" hidden><input type="search" id="pg-sumq" placeholder="Customer, order, variety, mix" aria-label="Search customers, orders, varieties and mixes" autocomplete="off"></label>
   </div>
 </div>
 <section class="pg-checktiles" id="pg-kpis" hidden></section>
@@ -38,6 +39,7 @@
 <section id="pg-old" hidden></section>
 <section id="pg-checks" hidden></section>
 <section id="pg-seq" hidden></section>
+<section id="pg-qb" hidden></section>
 <section id="pg-sum" hidden></section>
 <section id="pg-crops" hidden></section>
 <section id="pg-people" hidden></section>
@@ -537,6 +539,8 @@
   const API = "upande_packhouse.api.v2.allocation_playground.";
   const GUARDS = "upande_packhouse.api.v2.allocation_guards.";
   const TEAMS = "upande_packhouse.api.v2.allocation_teams.";
+  const QB_API = "upande_packhouse.api.v2.quality_b_orders.";
+  const qbOn = () => S.orderKind === "qualityb" && WEEK_MODES.includes(S.mode);
   const $ = (id) => document.getElementById(id);
   const n = (v) => PH.fmt.num(Math.round(v || 0));
   // The delivery date opens on tomorrow by the server's clock, is kept in the address (?date=), and is set the same way as on every v2 page.
@@ -636,14 +640,20 @@
     $("pg-week-wrap").hidden = !WEEK_MODES.includes(S.mode);
     $("pg-date-wrap").hidden = S.mode === "crops";
     $("pg-sumteam-wrap").hidden = S.mode !== "summary";
-    $("pg-sumq-wrap").hidden = S.mode !== "summary";
+    $("pg-sumq-wrap").hidden = S.mode !== "summary" && S.mode !== "sequence";
+    // Orders filter: Quality B lists the week's webstore orders in place of the plan (they are never planned)
+    $("pg-okind-wrap").hidden = !WEEK_MODES.includes(S.mode);
+    const qb = qbOn();
+    if (qb) ["pg-unconf", "pg-conf", "pg-old", "pg-checks", "pg-sum"].forEach((id) => ($(id).hidden = true));
+    $("pg-qb").hidden = !qb;
+    if (qb) $("pg-sumq-wrap").hidden = true;
     paintWeek();
     paintDate();
     $("pg-farm").closest("label").hidden = ["people", "unconfirmed", "checks", "nonmoving"].includes(S.mode);
     PH.$$("#pg-modes button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === (tabOf[S.mode] || S.mode)));
   }
   // the plan's two panes fill the window below the header, so only they scroll
-  const PANES = ["pg-conf", "pg-teams", "pg-old", "pg-checks", "pg-seq", "pg-sum", "pg-crops", "pg-people", "pg-work"];
+  const PANES = ["pg-conf", "pg-teams", "pg-old", "pg-checks", "pg-seq", "pg-qb", "pg-sum", "pg-crops", "pg-people", "pg-work"];
   function fitGrid() {
     // the plan's grid, or the open tab's section: it fills the window below the header and scrolls on its own
     const grid = document.querySelector(".apx .pg-grid");
@@ -661,10 +671,12 @@
   }
   window.addEventListener("resize", fitGrid);
   $("pg-sumteam").addEventListener("change", (e) => { S.sumTeam = e.target.value; loadSum(); });
-  $("pg-sumq").addEventListener("input", (e) => { S.sumQ = e.target.value; findSum(); });
+  $("pg-sumq").addEventListener("input", (e) => { S.sumQ = e.target.value; if (S.mode === "sequence") findSeq(); else findSum(); });
+  $("pg-okind").addEventListener("change", (e) => { S.orderKind = e.target.value; setMode(); });
   function setMode() {
     paintMode();
     requestAnimationFrame(fitGrid);
+    if (qbOn()) { loadQB(); return; }
     if (S.mode === "confirmed") loadOrders(); else if (S.mode === "teams") loadTeams(); else if (S.mode === "nonmoving") loadOld(); else if (S.mode === "checks") loadChecks();
     else if (S.mode === "sequence") loadSeq(); else if (S.mode === "summary") loadSum(); else if (S.mode === "crops") loadCrops(); else if (S.mode === "people") loadPeople(); else if (S.mode === "workforce") loadWork(); else if (board) { if (!S.pick && board.pools.length) S.pick = { variety: board.pools[0].variety, length: board.pools[0].length }; openPool(); }
   }
@@ -786,6 +798,7 @@
     if (S.mode === "crops") loadCrops();
     if (S.mode === "people") loadPeople();
     if (S.mode === "workforce") loadWork();
+    if (qbOn()) loadQB();
     loadChecks();
     PH.call(TEAMS + "teams_by_crop", { farm: S.farm || "" }, { silent: true }).then((r) => { if (r) { S.teamsByCrop = r.teams || {}; S.customerTeams = r.customer_teams || {}; } }).catch(() => {});
     return PH.call(API + "get_board", { ...plan(), farm: S.farm, view: S.view }).then((m) => {
@@ -1446,6 +1459,41 @@
     }));
   }
 
+  /* ── Quality B: the week's webstore orders, as they stand (never planned here: Grade B pick lists on submit) ── */
+  let qbSeq = 0;
+  function loadQB() {
+    const my = ++qbSeq;
+    PH.set($("pg-qb"), loading("Loading Quality B orders…"));
+    return PH.call(QB_API + "get_quality_b_orders", { ...plan(), farm: S.farm }, { silent: true })
+      .then((d) => { if (my === qbSeq && d) drawQB(d); })
+      .catch(() => { if (my === qbSeq) PH.set($("pg-qb"), '<div class="apx-card"><div class="pg-empty">Could not load the Quality B orders.</div></div>'); });
+  }
+  function drawQB(d) {
+    const os = d.orders || [];
+    $("pg-title").textContent = "Quality B · " + scopeLabel();
+    $("pg-sub").textContent = PH.fmt.plural(os.length, "order");
+    const sum = (k) => os.reduce((a, o) => a + (o[k] || 0), 0);
+    const waiting = os.reduce((a, o) => a + o.at_farm.reduce((b, f) => b + f.buckets, 0), 0);
+    const tiles = '<div class="pg-tiles">' +
+      '<div class="pg-tile"><span>Orders</span><b>' + n(os.length) + "</b></div>" +
+      '<div class="pg-tile"><span>Ordered</span><b>' + n(sum("ordered")) + "</b></div>" +
+      '<div class="pg-tile"><span>On pick lists</span><b>' + n(sum("picked")) + "</b></div>" +
+      '<div class="pg-tile"><span>Issued</span><b>' + n(sum("issued")) + "</b></div>" +
+      '<div class="pg-tile"><span>Buckets at a farm</span><b>' + n(waiting) + "</b></div></div>";
+    const rows = os.map((o) => "<tr><td>" + PH.fmt.date(o.delivery_date, true) + "</td><td><b>" + PH.esc(o.customer) + "</b><small>" + PH.esc(o.order_name || o.sales_order) + "</small></td><td>" + PH.esc(o.sales_farm) + "</td><td>" + PH.esc(o.teams.join(", ")) +
+      '</td><td class="is-num">' + n(o.ordered) + '</td><td class="is-num">' + n(o.picked) + '</td><td class="is-num">' + n(o.issued) + "</td><td>" +
+      (o.at_farm.map((f) => PH.esc(f.farm) + " " + f.buckets).join(", ") || "—") + (o.on_road ? "<small>" + o.on_road + " on the road</small>" : "") + "</td></tr>").join("");
+    PH.set($("pg-qb"), tiles + '<section class="ph-card">' + (os.length
+      ? '<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Delivery</th><th>Customer · order</th><th>Sales farm</th><th>Teams</th><th class="is-num">Ordered</th><th class="is-num">On pick lists</th><th class="is-num">Issued</th><th>Buckets at a farm</th></tr></thead><tbody>' + rows + "</tbody></table></div>"
+      : '<div class="pg-empty">No Quality B orders.</div>') + "</section>");
+    requestAnimationFrame(fitGrid);
+  }
+  // Team sequence search: the cards whose customer or order matches.
+  function findSeq() {
+    const q = (S.sumQ || "").trim().toLowerCase();
+    PH.$$("#pg-seq .pg-scard").forEach((c) => (c.hidden = !!q && !(c.dataset.q || "").includes(q)));
+  }
+
   /* ── Team sequence: one column per team, #1, #2 … per team; drag a card to reorder or move it to another team. ── */
   let seqSeq = 0;
   function loadSeq(quiet) {
@@ -1491,7 +1539,7 @@
   function drawSeq(d) {
     const none = d.teams.filter((t) => t.no_crop);
     const alert = "";
-    const card = (t, o) => '<div class="pg-scard" draggable="true" data-so="' + PH.esc(o.sales_order) + '" data-team="' + PH.esc(t.team) + '" data-n="' + o.n + '"><span class="pg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><div><div class="pg-scard__top"><span class="pg-chip pg-chip--ink">#' + o.n + '</span><b title="' + PH.esc(o.order_name || o.sales_order) + '">' + PH.esc(o.order_name || o.sales_order) + "</b></div><small>" + PH.esc(o.customer) + "</small>" +
+    const card = (t, o) => '<div class="pg-scard" draggable="true" data-q="' + PH.esc([o.customer, o.order_name, o.sales_order].join(" ").toLowerCase()) + '" data-so="' + PH.esc(o.sales_order) + '" data-team="' + PH.esc(t.team) + '" data-n="' + o.n + '"><span class="pg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><div><div class="pg-scard__top"><span class="pg-chip pg-chip--ink">#' + o.n + '</span><b title="' + PH.esc(o.order_name || o.sales_order) + '">' + PH.esc(o.order_name || o.sales_order) + "</b></div><small>" + PH.esc(o.customer) + "</small>" +
       // the order's lines this team packs: each straight line, each mix with its varieties, and their boxes
       ((o.lines || []).length ? '<div class="pg-slines">' + seqStraight(o.lines.filter((x) => x.kind !== "mix")) + o.lines.filter((x) => x.kind === "mix").map(seqMix).join("") + "</div>"
         : ((o.varieties || []).length ? "<small>" + PH.esc(o.varieties.join(", ")) + "</small>" : "")) +
@@ -1505,6 +1553,7 @@
       t.orders.map((o) => card(t, o)).join("") + (!t.no_crop && !t.orders.length ? '<div class="pg-sempty">Drop an order here</div>' : "") + "</div>";
     setHead("Allocation takes every team's #1, then every team's #2");
     PH.set($("pg-seq"), '' + alert + '<div class="pg-board">' + d.teams.map(col).join("") + "</div>");
+    findSeq();
     const mixPairs = [];
     d.teams.forEach((t) => t.orders.forEach((o) => (o.lines || []).forEach((x) => (x.items || []).forEach((v) => mixPairs.push({ variety: v.variety, length: v.length })))));
     fillSeqStock();

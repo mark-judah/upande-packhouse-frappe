@@ -637,6 +637,7 @@ def get_orders_workflow(
 	stage: Any = None,
 	view: Any = None,
 	packed_today: Any = None,
+	order_kind: Any = None,
 ):
 	"""Lines grouped by team (view=team, default) or customer (view=customer), plus KPIs.
 
@@ -887,17 +888,22 @@ def get_orders_workflow(
 			).lower()
 		]
 
+	# Quality B orders (webstore), counted in orders over every other filter; order_kind narrows to them or
+	# to every other order (export).
+	quality_b_orders = len({i["sales_order"] for i in items if i["quality_b"]})
+	order_kind = _s(order_kind)
+	if order_kind == "qualityb":
+		items = [i for i in items if i["quality_b"]]
+	elif order_kind == "export":
+		items = [i for i in items if not i["quality_b"]]
+
 	# Stage counts over every filter except the stage itself.
 	counts = {"all": len(items)}
 	for b, stages in BUCKETS.items():
 		counts[b] = sum(1 for i in items if i["stage"] in stages)
 	counts["partial"] = sum(1 for i in items if i["partial"])
-	# Quality B: counted in orders, not lines
-	counts["qualityb"] = len({i["sales_order"] for i in items if i["quality_b"]})
 	if stage == "partial":
 		items = [i for i in items if i["partial"]]
-	elif stage == "qualityb":
-		items = [i for i in items if i["quality_b"]]
 	elif stage != "all" and stage in BUCKETS:
 		items = [i for i in items if i["stage"] in BUCKETS[stage]]
 
@@ -1003,6 +1009,7 @@ def get_orders_workflow(
 		"farms": farms,
 		"kpis": k,
 		"stage_counts": counts,
+		"quality_b_orders": quality_b_orders,
 		"sections": sections,
 	}
 

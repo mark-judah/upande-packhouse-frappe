@@ -80,7 +80,7 @@
   .aph .aph-topbar:has(.rt-location:not([hidden]))::after{content:'';order:100;flex:0 0 100%;height:0;margin-top:-8px}
   .aph .aph-topbar:has(.rt-location:not([hidden]))>.rt-refresh{margin-left:auto}
   .aph .aph-topbar:has(.rt-location:not([hidden]))>.rt-farm{order:101}
-  .aph .aph-topbar:has(.rt-location:not([hidden]))>.rt-farm:not(.rt-location):not(.rt-team){margin-left:0}
+  .aph .aph-topbar:has(.rt-location:not([hidden]))>.rt-farm:not(.rt-location):not(.rt-team):not(.rt-kind){margin-left:0}
 }
 /* Phone: title and Refresh on the first row, the section tabs scroll sideways on the
    second, the date and filters share the third. */
@@ -111,6 +111,7 @@
 <label class="rt-date"{% if rt_active == 'journey' %} hidden{% endif %}>Delivery date <input type="date" id="rt-date"></label>
 <label class="rt-farm"{% if rt_active != 'scheduler' %} hidden{% endif %}>Farm <select id="rt-farm"><option value="">All farms</option></select></label>
 <label class="rt-farm rt-location"{% if rt_active not in ('scheduler', 'transfer') %} hidden{% endif %}>Location <select id="rt-location"><option value="">All locations</option></select></label>
+<label class="rt-farm rt-kind"{% if rt_active != 'scheduler' %} hidden{% endif %}>Orders <select id="rt-kind"><option value="">All orders</option><option value="export">Export</option><option value="qualityb">Quality B</option></select></label>
 <label class="rt-farm rt-team"{% if rt_active != 'transfer' %} hidden{% endif %}>Team <select id="rt-team"><option value="">All teams</option></select></label>
 <button type="button" class="rt-refresh" id="rt-refresh" title="Reload this view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><polyline points="20 4 20 11 13 11"/></svg>Refresh</button>
 {% include "upande_packhouse/templates/includes/remote_transfer_helpers.html" %}
@@ -257,6 +258,7 @@
     window.rtFarm = filter('rtFarm', document.getElementById('rt-farm'), 'All farms', 'rt-farm');
     window.rtTeam = filter('rtTeam', document.getElementById('rt-team'), 'All teams', 'rt-team');
     window.rtLocation = filter('rtLocation', document.getElementById('rt-location'), 'All locations', 'rt-location');
+    window.rtKind = filter('rtKind', document.getElementById('rt-kind'), 'All orders', 'rt-kind');
   })();
 </script>
 <script>

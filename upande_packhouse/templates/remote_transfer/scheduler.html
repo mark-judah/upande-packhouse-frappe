@@ -970,12 +970,14 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   function curFarm(){return (window.rtFarm&&window.rtFarm.get())||'';}
   function curTeam(){return (window.rtTeam&&window.rtTeam.get())||'';}
   function curLocation(){return (window.rtLocation&&window.rtLocation.get())||'';}
+  // Orders filter: Quality B (webstore) orders, or every other order (export).
+  function kindOk(o){var k=(window.rtKind&&window.rtKind.get())||'';return !k||(k==='qualityb'?!!o.quality_b:!o.quality_b);}
   // A farm picked: the orders packed at that sales farm, and those with buckets coming from it.
   function onFarm(o,f){return o.sales_farm===f||(o.farms||[]).indexOf(f)>=0;}
   function applyFilters(arr){
     var t=curTeam(), l=curLocation();
     var f=curFarm();
-    return arr.filter(function(o){return (!t||o.custom_team===t)&&(!l||o.location===l)&&(!f||onFarm(o,f));});
+    return arr.filter(function(o){return (!t||o.custom_team===t)&&(!l||o.location===l)&&(!f||onFarm(o,f))&&kindOk(o);});
   }
 
   // Status filter over every tab: Draft · Draft waiting transfer · Submitted, counted
@@ -1003,7 +1005,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   function renderTeamBar(){
     var box=el('teamBar'); if(!box) return;
     var l=curLocation(), f=curFarm(), vv=G.var||'all', t=curTeam();
-    var list=STATE.ready.filter(function(o){return (!l||o.location===l)&&(!f||onFarm(o,f))&&(vv==='all'||o.variation===vv);});
+    var list=STATE.ready.filter(function(o){return (!l||o.location===l)&&(!f||onFarm(o,f))&&kindOk(o)&&(vv==='all'||o.variation===vv);});
     var c={}; list.forEach(function(o){ if(o.custom_team) c[o.custom_team]=(c[o.custom_team]||0)+1; });
     var teams=Object.keys(c).sort();
     if(t&&teams.indexOf(t)<0) teams.push(t);
@@ -1464,7 +1466,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         return {name:o.opl,custom_order_name:o.order_name,customer:o.customer,custom_team:o.team,
                 total_stems:o.total_stems,n_buckets:o.n_buckets,remote_buckets:o.remote_buckets||0,remote_by_farm:o.remote_by_farm||{},buckets_by_farm:o.buckets_by_farm||{},count_by_farm:o.count_by_farm||null,n_farms:o.n_farms,farms:o.farms||[],farm_trips:o.farm_trips||[],
                 n_varieties:o.n_varieties,has_transfer:o.has_transfer,mixed_type:o.mixed_type,
-                docstatus:o.docstatus,variation:o.variation,location:o.location||'',sales_farm:o.sales_farm||'',issued_lines:o.issued_lines||0,lines:o.lines||0,packed:o.packed||0,packed_stems:o.packed_stems||0};
+                docstatus:o.docstatus,variation:o.variation,location:o.location||'',quality_b:o.quality_b||0,sales_farm:o.sales_farm||'',issued_lines:o.issued_lines||0,lines:o.lines||0,packed:o.packed||0,packed_stems:o.packed_stems||0};
       });
       reloadScheduled().then(function(){
         sortReady();
@@ -1496,6 +1498,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   if(window.rtTeam) window.rtTeam.on(filterChanged);
   if(el('teamBar'))el('teamBar').onclick=function(e){var b=e.target.closest('[data-team]');if(!b||!window.rtTeam)return;var v=b.getAttribute('data-team');window.rtTeam.set(curTeam()===v?'':v);};
   if(window.rtLocation) window.rtLocation.on(filterChanged);
+  if(window.rtKind) window.rtKind.on(filterChanged);
   if(window.rtFarm) window.rtFarm.on(filterChanged);
   // The Scheduler page's copy (window.SCH_TEAMS_ONLY): every team's submitted orders, By team, only.
   var TEAMS_ONLY=!!window.SCH_TEAMS_ONLY;
