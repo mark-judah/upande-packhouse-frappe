@@ -4267,9 +4267,9 @@ def _add_remainder(sales_order_item, location, variety, sub, opt):
 	so = frappe.db.get_value("Sales Order Item", sales_order_item, "parent")
 	was, frappe.flags.sa2_one_commit = frappe.flags.get("sa2_one_commit"), True
 	try:
-		summary = _("Added {0} {1} stems to {2}, which required {3}: {2} fills {4}, {0} fills the remaining {1}.").format(
-			variety, _num(give), sub["variety"], _num(stems), _num(stems - give)
-		)
+		summary = _(
+			"Added {0} {1} stems to {2}, which required {3}: {2} fills {4}, {0} fills the remaining {1}."
+		).format(variety, _num(give), sub["variety"], _num(stems), _num(stems - give))
 		out = _share_split(sales_order_item, variety, give, message=summary)
 		new = out["parts"][0]["sales_order_item"]
 		out["proposed"] = _hold_lines(location, so, [sales_order_item, new])
@@ -4302,7 +4302,9 @@ def _hold_lines(location, sales_order, sois):
 	]
 	for it in items:
 		it["sales_order"] = sales_order
-		it["total_allocated_qty"] = flt(it.get("total_allocated_qty")) + _pending_stems(it["sales_order_item"])
+		it["total_allocated_qty"] = flt(it.get("total_allocated_qty")) + _pending_stems(
+			it["sales_order_item"]
+		)
 	_hold_to_plan(items)
 	taken, picks = {}, []
 	for it in items:
