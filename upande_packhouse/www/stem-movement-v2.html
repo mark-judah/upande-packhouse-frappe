@@ -24,7 +24,7 @@
 </header>
 
 <div class="ph-filters" id="filters">
-  <div class="ph-pills" id="f-farm" aria-label="Farm"></div>
+  <div id="f-farm"></div>
   <span class="sm-day">
     <button class="ph-iconbtn ph-iconbtn--sm" id="day-prev" type="button" aria-label="Previous day"></button>
     <input type="date" class="ph-input" id="f-day" aria-label="Day">
@@ -77,6 +77,7 @@
   PH.$("#day-prev").innerHTML = PH.icon("chevronLeft");
   PH.$("#day-next").innerHTML = PH.icon("chevronRight");
   PH.$("#f-q-ic").innerHTML = PH.icon("search");
+  const farmPick = PH.multiSelect("#f-farm", st, "farm", { all: "All farms", plural: "farms" });
   PH.bindSearch("#f-q", st, "q");
   PH.bindSelect("#f-variety", st, "variety");
   PH.bindSelect("#f-len", st, "len");
@@ -109,8 +110,7 @@
     data.open.concat(data.moves).forEach((r) => { vs[r.v] = 1; ls[r.l] = 1; });
     PH.options("#f-variety", Object.keys(vs).sort(), st.get("variety"));
     PH.options("#f-len", Object.keys(ls).filter(Boolean).sort((a, b) => lenNum(a) - lenNum(b)), st.get("len"));
-    PH.$("#f-farm").innerHTML = data.farms.map((f) => `<button data-value="${esc(f)}">${esc(f)}</button>`).join("");
-    PH.pills("#f-farm", st, "farm");
+    farmPick.setItems(data.farms);
   }
 
   function paintDay() {
@@ -141,9 +141,17 @@
     if (data.phantom.lots > 0) out.push(`<div class="ph-notice sm-note">${N(data.phantom.lots)} exits (${N(data.phantom.stems)} stems) were logged for stems whose shelving was never logged, so they are not on this ledger.</div>`);
     if (isToday() && data.live) {
       const diff = all.close - data.live.stems;
+      const g = data.gap || {};
+      const parts = [
+        [g.no_log, "on the shelf with no shelving ever logged for the bucket"],
+        [g.old, "on the shelf, last shelved more than " + N(data.discard_days) + " days ago, so the ledger treats them as aged out"],
+        [g.ended, "on the shelf, but the ledger ended the lot early (a logged exit, a re-shelving or a harvest of the bucket)"],
+        [g.partial, "on the shelf above what the log recorded for the bucket"],
+        [-g.ghost, "on the ledger but not on the shelf (their exit was never logged)"],
+      ].filter((x) => Math.abs(x[0] || 0) >= 1);
       out.push(Math.abs(diff) < 1
         ? `<div class="ph-notice ph-notice--good sm-note">The closing stock matches the live shelf (${N(data.live.stems)} stems).</div>`
-        : `<div class="ph-notice ph-notice--warn sm-note">The ledger closes at ${N(all.close)} stems and the live shelf holds ${N(data.live.stems)}: ${N(Math.abs(diff))} ${diff > 0 ? "more on the ledger than on the shelf" : "more on the shelf than on the ledger"}. Stems the log never recorded leaving, or never recorded arriving, make up the difference.</div>`);
+        : `<div class="ph-notice ph-notice--warn sm-note"><div>The ledger closes at ${N(all.close)} stems and the live shelf holds ${N(data.live.stems)} (${N(Math.abs(diff))} ${diff > 0 ? "more on the shelf" : "more on the ledger"}).${parts.length ? "<ul>" + parts.map((x) => `<li>${N(Math.abs(x[0]))} ${esc(x[1])}</li>`).join("") + "</ul>" : ""}</div></div>`);
     }
     PH.$("#notes").innerHTML = out.join("");
   }
@@ -165,14 +173,16 @@
     const shown = on.size ? c.moves.filter((r) => on.has(r.m)) : c.moves;
     const day = PH.fmt.date(data.day);
     const rows = [{ _edge: 1, time: "", shelf: "", bucket: "", variety: "", len: "", mv: "Opening stock, " + day + " 00:00", ref: "", in: null, out: null, bal: c.open }]
-      .concat(shown.map((r) => ({ time: r.t.slice(0, 5), shelf: r.s, bucket: r.b, variety: r.v, len: r.l, mv: r.m, why: r.w, inf: r.inf, ref: r.ref, so: r.so, in: r.k === "i" ? r.q : null, out: r.k === "x" ? r.q : null, bal: r.bal })))
+      .concat(shown.map((r) => ({ time: r.t.slice(0, 5), farm: r.f, shelf: r.s, bucket: r.b, variety: r.v, len: r.l, mv: r.m, why: r.w, inf: r.inf, ref: r.ref, so: r.so, in: r.k === "i" ? r.q : null, out: r.k === "x" ? r.q : null, bal: r.bal })))
       .concat([{ _edge: 1, time: "", shelf: "", bucket: "", variety: "", len: "", mv: "Closing stock, " + day + " " + edge, ref: "", in: null, out: null, bal: c.close }]);
     view = rows;
     PH.$("#ledger-meta").textContent = N(shown.length) + " of " + N(c.moves.length) + " movements" + (on.size ? " · balance is for the whole selection" : "");
     const numCell = (v) => (v == null ? "" : N(v));
+    const many = !data.farm || data.farm.indexOf(",") >= 0;
     const cfg = {
       columns: [
         { key: "time", label: "Time", sortable: false },
+        ...(many ? [{ key: "farm", label: "Farm", sortable: false }] : []),
         { key: "shelf", label: "Shelf", sortable: false, cls: "ph-mono" },
         { key: "bucket", label: "Bucket", sortable: false, html: (v) => (v ? `<a class="ph-link ph-mono" href="${JOURNEY}${encodeURIComponent(v)}">${esc(v)}</a>` : "") },
         { key: "variety", label: "Variety", sortable: false },
@@ -203,7 +213,7 @@
       .then((r) => {
         if (my !== seq) return;
         data = r;
-        st.set({ farm: r.farm || "", day: r.day === r.today ? "" : r.day }, { silent: true });
+        st.set({ day: r.day === r.today ? "" : r.day }, { silent: true });
         paintOptions();
         paintDay();
         PH.keepScroll(paint);
@@ -233,8 +243,8 @@
   PH.$("#f-clear").addEventListener("click", () => { PH.$("#f-q").value = ""; st.set({ q: "", variety: "", len: "", types: "" }); });
   PH.$("#export").addEventListener("click", () => {
     if (!data) return;
-    PH.csv(`shelf-ledger-${data.farm}-${data.day}.csv`, view.map((r) => ({ time: r.time, shelf: r.shelf, bucket: r.bucket, variety: r.variety, len: r.len, movement: r.mv + (r.inf ? " (worked out from other records)" : ""), reference: r.ref, in: r.in, out: r.out, balance: r.bal })),
-      [["time", "Time"], ["shelf", "Shelf"], ["bucket", "Bucket"], ["variety", "Variety"], ["len", "Length"], ["movement", "Movement"], ["reference", "Reference"], ["in", "In"], ["out", "Out"], ["balance", "Balance"]].map((c) => ({ key: c[0], label: c[1] })));
+    PH.csv(`shelf-ledger-${(data.farm || "all-farms").replace(/,/g, "+")}-${data.day}.csv`, view.map((r) => ({ time: r.time, farm: r.farm, shelf: r.shelf, bucket: r.bucket, variety: r.variety, len: r.len, movement: r.mv + (r.inf ? " (worked out from other records)" : ""), reference: r.ref, in: r.in, out: r.out, balance: r.bal })),
+      [["time", "Time"], ["farm", "Farm"], ["shelf", "Shelf"], ["bucket", "Bucket"], ["variety", "Variety"], ["len", "Length"], ["movement", "Movement"], ["reference", "Reference"], ["in", "In"], ["out", "Out"], ["balance", "Balance"]].map((c) => ({ key: c[0], label: c[1] })));
   });
 
   st.on((s, changed) => {

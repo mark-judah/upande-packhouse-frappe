@@ -80,23 +80,39 @@ def _stamp(t):
 
 @frappe.whitelist(methods=["GET"])
 def get_ledger(farm: str | None = None, day: str | None = None):
-	"""One farm's shelf ledger for one day (default: the first sales-shelf farm, today)."""
+	"""The shelf ledger for one day. `farm` is one farm, several comma-separated, or empty for every farm."""
 	_guard()
 	try:
 		cfg = stock._config()
 		farm_cfg = cfg["farm_config"]
 		farms = sorted(farm_cfg, key=lambda f: (not farm_cfg[f].get("sales_shelf"), f))
-		farm = farm if farm in farm_cfg else (farms[0] if farms else None)
+		picked = [f for f in dict.fromkeys(x.strip() for x in (farm or "").split(",")) if f in farm_cfg]
+		scope = picked or farms
 		now = now_datetime()
 		d = min(getdate(day or today()), getdate(today()))
-		out = {"success": True, "farms": farms, "farm": farm, "day": str(d), "today": str(getdate(today()))}
-		if not farm:
+		out = {"success": True, "farms": farms, "farm": ",".join(picked), "day": str(d), "today": str(getdate(today()))}
+		if not scope:
 			return dict(out, open=[], moves=[], left_out={"stems": 0, "issues": 0}, phantom={"lots": 0, "stems": 0}, live=None)
-		out.update(build(farm, d, now, float(cfg.get("discard_age") or 6)))
+		age = float(cfg.get("discard_age") or 6)
+		res = {"open": [], "moves": [], "left_out": {"stems": 0.0, "issues": 0}, "phantom": {"lots": 0, "stems": 0.0}}
+		for f in scope:
+			one = build(f, d, now, age)
+			for r in one["open"] + one["moves"]:
+				r["f"] = f
+			res["open"] += one["open"]
+			res["moves"] += one["moves"]
+			res["left_out"]["stems"] += one["left_out"]["stems"]
+			res["left_out"]["issues"] += one["left_out"]["issues"]
+			res["phantom"]["lots"] += one["phantom"]["lots"]
+			res["phantom"]["stems"] += one["phantom"]["stems"]
+			res["as_of"] = one["as_of"]
+		if len(scope) > 1:
+			res["moves"].sort(key=lambda m: (m["t"], m["k"] != "i"))
+		out.update(res, discard_days=age)
 		out["live"] = None
 		if d == getdate(today()):
-			live = sum(float(r.stems or 0) for r in stock.bucket_rows(farms=[farm]))
-			out["live"] = {"stems": live}
+			out["live"] = {"stems": sum(float(r.stems or 0) for r in stock.bucket_rows(farms=scope))}
+			out["gap"] = _gap(scope, res, now, age)
 		return out
 	except frappe.PermissionError:
 		raise
@@ -158,6 +174,49 @@ def build(farm, day, now, discard_days):
 		"as_of": str(end),
 		"discard_days": discard_days,
 	}
+
+
+def _gap(farms, res, now, age):
+	"""Why the ledger's closing differs from the live shelf, bucket by bucket (today only): stems on the
+	shelf the ledger does not hold, by cause, and stems the ledger holds that are not on the shelf."""
+	led = {}
+	for r in res["open"]:
+		k = (r["b"], r["v"], r["l"])
+		led[k] = led.get(k, 0.0) + r["q"]
+	for m in res["moves"]:
+		k = (m["b"], m["v"], m["l"])
+		led[k] = led.get(k, 0.0) + (m["q"] if m["k"] == "i" else -m["q"])
+	live = {}
+	for r in _rows(
+		"""SELECT si.bucket_id b, si.variety v, COALESCE(si.stem_length, '') l, SUM(si.stem_qty) q
+		   FROM `tabShelf Item` si JOIN `tabShelf` s ON s.name = si.parent
+		   WHERE s.farm IN %s AND si.stem_qty > 0 GROUP BY 1, 2, 3""",
+		(farms,),
+	):
+		live[(r["b"], r["v"], r["l"])] = float(r["q"])
+	short = {k: v - led.get(k, 0.0) for k, v in live.items() if v - led.get(k, 0.0) > 0.5}
+	last = {}
+	buckets = sorted({k[0] for k in short if k[0]})
+	for chunk in _chunks(buckets):
+		for r in _rows(
+			"""SELECT bucket_id b, variety v, COUNT(*) n, MAX(shelved_on) last_in FROM `tabShelving Log`
+			   WHERE bucket_id IN %s GROUP BY 1, 2""",
+			(chunk,),
+		):
+			last[(r["b"], r["v"])] = r
+	gap = {"no_log": 0.0, "old": 0.0, "ended": 0.0, "partial": 0.0, "ghost": 0.0}
+	for k, miss in short.items():
+		row = last.get((k[0], k[1]))
+		if not row:
+			gap["no_log"] += miss
+		elif row["last_in"] and (now - row["last_in"]) > timedelta(days=age):
+			gap["old"] += miss
+		elif led.get(k, 0.0) <= 0.5:
+			gap["ended"] += miss
+		else:
+			gap["partial"] += miss
+	gap["ghost"] = sum(v - live.get(k, 0.0) for k, v in led.items() if v - live.get(k, 0.0) > 0.5)
+	return {k: round(v) for k, v in gap.items()}
 
 
 def _move(l, kind, t, label, qty, ref="", so="", inferred=0, why=""):
