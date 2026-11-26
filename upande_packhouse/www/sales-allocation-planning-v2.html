@@ -726,7 +726,7 @@
     if (S.orderKind !== "seafreight") return;
     PH.$$("#pg-detail select.pg-team-row[data-soi], #pg-detail tr[data-soi] select.pg-o-team").forEach((sel) => {
       const soi = sel.dataset.soi || sel.closest("tr").dataset.soi;
-      if (!soi || !S.sfOpts[soi] || (sel.nextElementSibling && sel.nextElementSibling.classList.contains("pg-gh-row"))) return;
+      if (!soi || !S.sfOpts[soi] || !(S.sfOpts[soi].greenhouses || []).length || (sel.nextElementSibling && sel.nextElementSibling.classList.contains("pg-gh-row"))) return;
       if (sel.closest("tr") && sel.closest("tr").querySelector(".pg-o-gh")) return;
       sel.insertAdjacentHTML("afterend", ghSelect(soi));
     });
