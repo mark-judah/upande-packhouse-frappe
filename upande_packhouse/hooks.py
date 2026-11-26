@@ -260,6 +260,10 @@ override_doctype_class = {  # nosemgrep: override-doctype-class
 	# doctype, so every other document type repeats exactly as in core. See
 	# overrides/auto_repeat.py and standing_orders.py.
 	"Auto Repeat": "upande_packhouse.overrides.auto_repeat.PackhouseAutoRepeat",
+	# Log Settings can list Version and clears it and Deleted Document a
+	# batch at a time inside the daily cleanup. See overrides/log_cleanup.py.
+	"Version": "upande_packhouse.overrides.log_cleanup.VersionLogClearing",
+	"Deleted Document": "upande_packhouse.overrides.log_cleanup.DeletedDocumentLogClearing",
 }
 
 # Document Events
