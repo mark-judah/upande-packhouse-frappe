@@ -558,6 +558,8 @@
   const GUARDS = "upande_packhouse.api.v2.allocation_guards.";
   const TEAMS = "upande_packhouse.api.v2.allocation_teams.";
   // Every planning call carries the Orders filter (export, or Quality B) on the screens that show it.
+  // sea freight is always planned by order (greenhouse, then confirm per greenhouse)
+  const groupOf = () => (S.orderKind === "seafreight" ? "order" : S.group);
   const pgCallRaw = (method, args, opts) => PH.call(method, { ...(args || {}), order_kind: S.orderKind && WEEK_MODES.includes(S.mode) ? S.orderKind : "" }, opts);
   // Sea freight lines come with their greenhouses (and the default one): kept per line for the picker beside the team
   const sfKeep = (x) => {
@@ -694,6 +696,7 @@
     $("pg-sumq-wrap").hidden = S.mode !== "summary" && S.mode !== "sequence";
     // Orders filter: the plan and the confirmations of export, Quality B or sea freight orders
     $("pg-okind-wrap").hidden = !WEEK_MODES.includes(S.mode);
+    $("pg-group").hidden = S.orderKind === "seafreight";
     paintWeek();
     paintDate();
     $("pg-farm").closest("label").hidden = ["people", "unconfirmed", "checks", "nonmoving"].includes(S.mode);
@@ -730,12 +733,12 @@
   };
   new MutationObserver(sfPickers).observe(document.getElementById("pg-detail"), { childList: true, subtree: true });
   document.addEventListener("change", (e) => { const g = e.target.closest && e.target.closest(".pg-gh-row"); if (g) S.sfGh[g.dataset.soi] = g.value; });
-  $("pg-okind").addEventListener("change", (e) => { S.orderKind = e.target.value; S.pick = null; poolCache = {}; load(); });
+  $("pg-okind").addEventListener("change", (e) => { S.orderKind = e.target.value; S.pick = null; poolCache = {}; paintMode(); load(); });
   function setMode() {
     paintMode();
     requestAnimationFrame(fitGrid);
     if (S.mode === "confirmed") loadOrders(); else if (S.mode === "teams") loadTeams(); else if (S.mode === "nonmoving") loadOld(); else if (S.mode === "checks") loadChecks();
-    else if (S.mode === "sequence") loadSeq(); else if (S.mode === "summary") loadSum(); else if (S.mode === "crops") loadCrops(); else if (S.mode === "people") loadPeople(); else if (S.mode === "workforce") loadWork(); else if (board) { if (!S.pick && board.pools.length) S.pick = { variety: board.pools[0].variety, length: board.pools[0].length }; openPool(); }
+    else if (S.mode === "sequence") loadSeq(); else if (S.mode === "summary") loadSum(); else if (S.mode === "crops") loadCrops(); else if (S.mode === "people") loadPeople(); else if (S.mode === "workforce") loadWork(); else if (board) { if (groupOf() === "order") { drawList(); return; } if (!S.pick && board.pools.length) S.pick = { variety: board.pools[0].variety, length: board.pools[0].length }; openPool(); }
   }
   $("pg-farm").addEventListener("change", () => { S.farm = $("pg-farm").value; S.pick = null; load(); });
   $("pg-group").addEventListener("click", (e) => {
@@ -845,6 +848,7 @@
     PH.set($("pg-list"), loading("Loading the day…"));
     S.checksData = null; drawCheckTiles();
     // The variety being worked on does not wait for the list: ask for both at once.
+    if (groupOf() === "order" && S.pick && !S.pick.order && !S.pick.mix) S.pick = null;
     const started = S.pick ? JSON.stringify(S.pick) : "";
     if (S.pick && S.mode === "unconfirmed") openPool();
     if (S.mode === "confirmed") loadOrders();
@@ -867,6 +871,8 @@
       if (S.mode !== "unconfirmed") return;
       if (S.pick && S.pick.mix) { drawMix(); return; }
       if (S.pick && S.pick.order) { drawOrder(); return; }
+      // listed by order (sea freight always is): the order list opened the first order, or said none is left
+      if (groupOf() === "order") return;
       if (S.pick && !m.pools.some((p) => p.variety === S.pick.variety && p.length === S.pick.length)) S.pick = null;
       if (!S.pick && m.pools.length) S.pick = { variety: m.pools[0].variety, length: m.pools[0].length };
       if (!started || JSON.stringify(S.pick) !== started) openPool();   // already on its way when the pick did not change
@@ -938,7 +944,7 @@
     if (["unconfirmed", "checks", "nonmoving"].includes(S.mode)) setHead();
     // a check filter waits for the day's checks before it decides what is listed
     if (S.tileFilter && !S.checksData) { PH.set(el, skList()); return; }
-    if (S.group === "order") return drawOrderList(el);
+    if (groupOf() === "order") return drawOrderList(el);
     // varieties hold the straight lines; a mix is confirmed as one, all its varieties together (as Sales
     // Allocation packs it), so it is listed on its own
     const pools = S.kind === "mixed" ? [] : board.pools.filter((p) => (!S.crop || p.crop === S.crop) && (p.kinds || ["straight"]).includes("straight") && (!S.tileFilter || poolHas(p, S.tileFilter)) && poolHit(p));
@@ -1775,7 +1781,9 @@
     }));
     PH.$$("#pg-sum [data-plan-v]").forEach((b) => (b.onclick = () => {
       S.view = "all"; S.kind = ""; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === ""));
-      S.pick = { variety: b.dataset.planV, length: b.dataset.planL }; S.tab = "pg-t-exact";
+      // sea freight is planned by order: the line's order opens
+      const so = b.closest("tr") && b.closest("tr").dataset.p;
+      S.pick = groupOf() === "order" && so ? { order: so } : { variety: b.dataset.planV, length: b.dataset.planL }; S.tab = "pg-t-exact";
       st.set({ tab: "unconfirmed" }); load();
     }));
   }
