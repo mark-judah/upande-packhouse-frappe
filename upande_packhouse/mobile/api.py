@@ -3883,6 +3883,10 @@ def _schedule_blockers(opl_name, kind):
 		frappe.get_cached_doc("Production Settings").get(SEQUENCE_BYPASS[kind])
 	):
 		return None, 0, []
+	from upande_packhouse.api.quality_b_receive import quality_b_issue_bypass
+
+	if quality_b_issue_bypass(kind):
+		return None, 0, []
 	cur = frappe.db.sql(
 		"""SELECT pso.parent, pso.sequence, ps.team FROM `tabPackhouse Schedule Order` pso
 		JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent

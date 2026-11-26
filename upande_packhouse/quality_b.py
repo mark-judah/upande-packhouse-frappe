@@ -685,6 +685,14 @@ def _swap_row(opl, row, b, why=None):
 	return old, qty
 
 
+def quality_b_opls(opls):
+	"""The Quality B pick lists among `opls`."""
+	opls = [o for o in opls or () if o]
+	if not opls:
+		return []
+	return frappe.get_all("Order Pick List", filters={"name": ["in", opls], "quality_b": 1}, pluck="name")
+
+
 def is_quality_b_opl(opl_name):
 	return bool(opl_name) and bool(cint(frappe.db.get_value("Order Pick List", opl_name, "quality_b")))
 
