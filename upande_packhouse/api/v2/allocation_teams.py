@@ -206,9 +206,13 @@ def team_sales_farms():
 	"""{team: its sales farm} (a team with none: its location's farm), read once per request."""
 	cached = getattr(frappe.local, "_team_sales_farms", None)
 	if cached is None:
+		# a site whose Packing Teams has no Sales Farm (or Location) column yet: whichever it has
+		fields = ["name"] + [
+			f for f in ("sales_farm", "location") if frappe.db.has_column("Packing Teams", f)
+		]
 		cached = {
-			r.name: r.sales_farm or r.location or ""
-			for r in frappe.get_all("Packing Teams", fields=["name", "sales_farm", "location"])
+			r.name: r.get("sales_farm") or r.get("location") or ""
+			for r in frappe.get_all("Packing Teams", fields=fields)
 		}
 		frappe.local._team_sales_farms = cached
 	return dict(cached)
