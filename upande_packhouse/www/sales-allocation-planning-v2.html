@@ -258,6 +258,9 @@
   .pg-team-row{display:block;margin-top:6px;max-width:150px;min-width:110px}
   .pg-act .pg-unconf{margin-left:6px}
   .pg-ghcell{white-space:nowrap;font-size:13px}.pg-ghcell b{font-weight:600}
+  .pg-ghin{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:2px 0;font-size:12px;white-space:nowrap}
+  .pg-ghin small{color:var(--ax-mute)}
+  .pg-ghin .pg-o-gh{width:84px;height:30px}
   .pg-gh-row{display:block;margin-top:6px;max-width:170px;min-width:110px}
   .pg-tabs{margin:0 var(--sp-6) var(--sp-3)}
   .pg-supply{padding:0 var(--sp-6) var(--sp-3)}
@@ -551,6 +554,17 @@
     Object.values(x).forEach((v) => { if (v && typeof v === "object") sfKeep(v); });
   };
   const pgCall = (method, args, opts) => pgCallRaw(method, args, opts).then((r) => { if (S.orderKind === "seafreight" && r) sfKeep(r); return r; });
+  const sfSplit = (stems, gs) => {
+    const w = {};
+    gs.forEach((g) => (w[g.name] = +g.forecast || 0));
+    let tot = Object.values(w).reduce((a, v) => a + v, 0);
+    if (tot <= 0) { gs.forEach((g) => (w[g.name] = 1)); tot = gs.length; }
+    const out = {};
+    Object.keys(w).forEach((k) => (out[k] = Math.floor((stems * w[k]) / tot)));
+    let rest = stems - Object.values(out).reduce((a, v) => a + v, 0);
+    Object.keys(w).sort((a, b) => w[b] - w[a]).forEach((k) => { if (rest > 0 && w[k] > 0) { out[k] += 1; rest -= 1; } });
+    return out;
+  };
   const sfGhOf = (soi) => (S.sfGh || {})[soi] || ((S.sfOpts || {})[soi] || {}).greenhouse || "";
   const ghSelect = (soi) => {
     const o = (S.sfOpts || {})[soi], cur = sfGhOf(soi);
@@ -697,6 +711,7 @@
     PH.$$("#pg-detail select.pg-team-row[data-soi], #pg-detail tr[data-soi] select.pg-o-team").forEach((sel) => {
       const soi = sel.dataset.soi || sel.closest("tr").dataset.soi;
       if (!soi || !S.sfOpts[soi] || (sel.nextElementSibling && sel.nextElementSibling.classList.contains("pg-gh-row"))) return;
+      if (sel.closest("tr") && sel.closest("tr").querySelector(".pg-o-gh")) return;
       sel.insertAdjacentHTML("afterend", ghSelect(soi));
     });
   };
@@ -1050,10 +1065,19 @@
     lines.filter((x) => x.mixed).forEach((x) => (mixes[x.group] = mixes[x.group] || []).push(x));
     const done = o.lines.filter((x) => !openLine(x)).length;
     const subBtn = (soi) => '<button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" data-subadd="' + PH.esc(soi) + '">Substitute / add</button> ';
-    const head = '<thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th class="is-num">Total stock</th><th>Confirm</th><th>Team</th><th class="pg-act"></th></tr></thead>';
+    // Sea freight: the stems to confirm split over the greenhouses growing the variety, by their forecast
+    const sfOrder = S.orderKind === "seafreight";
+    const ghCells = (x) => {
+      if (!sfOrder) return "";
+      const gs = ((S.sfOpts || {})[x.soi] || {}).greenhouses || [];
+      if (!gs.length) return '<td><span class="ph-muted">No greenhouse grows it</span></td>';
+      const split = sfSplit(Math.round(x.left), gs);
+      return "<td>" + gs.map((g) => '<label class="pg-ghin"><span>' + PH.esc(g.label) + (g.forecast ? " <small>" + n(g.forecast) + "</small>" : "") + '</span><input class="ph-input pg-o-gh" type="number" min="0" step="1" data-gh="' + PH.esc(g.name) + '" value="' + (split[g.name] || 0) + '" aria-label="Stems from ' + PH.esc(g.label) + '"></label>').join("") + "</td>";
+    };
+    const head = '<thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th class="is-num">Total stock</th><th>Confirm</th>' + (sfOrder ? "<th>Greenhouses</th>" : "") + '<th>Team</th><th class="pg-act"></th></tr></thead>';
     const fcCells = (x) => '<td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(fc(x.variety, x.length).rolling) + '</td><td class="is-num">' + n(fc(x.variety, x.length).production) + "</td>" + stockCell(x.variety, x.length);
     const sRows = straight.map((x) => '<tr data-soi="' + PH.esc(x.soi) + '"><td><b>' + PH.esc(x.variety) + "</b> " + PH.esc(x.length) + "<small>straight · " + x.boxes + (x.boxes === 1 ? " box" : " boxes") + "</small></td>" + fcCells(x) +
-      '<td><input class="ph-input pg-in pg-o-stems" type="number" min="0" max="' + Math.round(x.left) + '" step="' + (Math.round(x.per_box) || 1) + '" value="' + Math.round(x.left) + '" aria-label="Stems to confirm for ' + PH.esc(x.variety) + '"><small>' + n(x.per_box || 0) + " a box</small></td>" +
+      '<td><input class="ph-input pg-in pg-o-stems" type="number" min="0" max="' + Math.round(x.left) + '" step="' + (Math.round(x.per_box) || 1) + '" value="' + Math.round(x.left) + '" aria-label="Stems to confirm for ' + PH.esc(x.variety) + '"><small>' + n(x.per_box || 0) + " a box</small></td>" + ghCells(x) +
       '<td><select class="ph-select pg-o-team" aria-label="Team for ' + PH.esc(x.variety) + '">' + teamOptions(x.team) + "</select></td>" +
       '<td class="pg-act">' + subBtn(x.soi) + '<button type="button" class="ph-btn ph-btn--primary ph-btn--sm" data-o-line="' + PH.esc(x.soi) + '">Confirm</button></td></tr>').join("");
     const mRows = Object.keys(mixes).map((k) => {
@@ -1085,7 +1109,23 @@
     loadStockCells($("pg-detail"), lines.map((x) => ({ variety: x.variety, length: x.length })));
     // a team for the whole order: every line and mix takes it
     $("pg-o-allteam").onchange = (e) => { if (e.target.value) PH.$$("#pg-detail .pg-o-team").forEach((sel) => (sel.value = e.target.value)); };
+    // the stems box and the greenhouse boxes follow each other: a total typed is split again by forecast, a
+    // greenhouse changed makes the total
+    PH.$$("#pg-detail tr[data-soi]").forEach((tr) => {
+      const ghs = PH.$$(".pg-o-gh", tr), stems = tr.querySelector(".pg-o-stems");
+      if (!ghs.length || !stems) return;
+      const opts = ((S.sfOpts || {})[tr.dataset.soi] || {}).greenhouses || [];
+      stems.addEventListener("change", () => { const sp = sfSplit(Math.max(0, Math.round(+stems.value || 0)), opts); ghs.forEach((i) => (i.value = sp[i.dataset.gh] || 0)); });
+      ghs.forEach((i) => i.addEventListener("input", () => { stems.value = ghs.reduce((a, g) => a + Math.max(0, Math.round(+g.value || 0)), 0); }));
+    });
     const lineOf = (tr) => {
+      const ghs = PH.$$(".pg-o-gh", tr);
+      if (ghs.length) {
+        const x = o.lines.find((y) => y.soi === tr.dataset.soi), team = tr.querySelector(".pg-o-team").value;
+        const greenhouses = ghs.map((i) => ({ greenhouse: i.dataset.gh, stems: Math.max(0, Math.round(+i.value || 0)) })).filter((g) => g.stems > 0);
+        const total = greenhouses.reduce((a, g) => a + g.stems, 0);
+        return { sales_order_item: x.soi, stems: Math.min(Math.round(x.left), total), team, stock_farm: x.stock_farm || S.farm, greenhouses };
+      }
       const x = o.lines.find((y) => y.soi === tr.dataset.soi), team = tr.querySelector(".pg-o-team").value;
       const typed = Math.max(0, Math.round(+tr.querySelector(".pg-o-stems").value || 0));
       const whole = x.per_box > 0 && typed > 0 ? Math.ceil(typed / x.per_box - 1e-9) * x.per_box : typed;
@@ -2172,8 +2212,8 @@
   function save(lines) {
     if (saving) return Promise.resolve(false);
     if (S.orderKind === "seafreight") {
-      lines = lines.map((l) => (S.sfOpts[l.sales_order_item] ? { ...l, greenhouse: sfGhOf(l.sales_order_item) } : l));
-      const none = lines.find((l) => l.stems > 0 && S.sfOpts[l.sales_order_item] && !l.greenhouse);
+      lines = lines.map((l) => (S.sfOpts[l.sales_order_item] && !(l.greenhouses || []).length ? { ...l, greenhouse: sfGhOf(l.sales_order_item) } : l));
+      const none = lines.find((l) => l.stems > 0 && S.sfOpts[l.sales_order_item] && !l.greenhouse && !(l.greenhouses || []).length);
       if (none) {
         const g = document.querySelector('.pg-gh-row[data-soi="' + none.sales_order_item + '"]');
         if (g) g.focus();

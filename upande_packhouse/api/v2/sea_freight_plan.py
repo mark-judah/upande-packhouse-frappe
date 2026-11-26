@@ -274,18 +274,28 @@ def require_greenhouses(items):
 	)
 	if not rows:
 		return {}
-	given = {x["sales_order_item"]: (x.get("greenhouse") or "").strip() for x in items}
+	by_soi = {x["sales_order_item"]: x for x in items}
 	growing = _growing({r.item_code for r in rows})
 	out = {}
 	for r in rows:
-		gh = given.get(r.name)
-		if not gh:
+		x = by_soi[r.name]
+		known = {h["name"] for h in growing.get(r.item_code, [])}
+		# the stems split over several greenhouses, or one greenhouse for the whole line
+		split = {
+			(g.get("greenhouse") or "").strip(): flt(g.get("stems"))
+			for g in x.get("greenhouses") or []
+			if (g.get("greenhouse") or "").strip() and flt(g.get("stems")) > 0
+		}
+		if not split and (x.get("greenhouse") or "").strip():
+			split = {x["greenhouse"].strip(): flt(x.get("stems"))}
+		if not split:
 			frappe.throw(
 				_("Choose the greenhouse that cuts {0} for this sea freight order.").format(r.item_name)
 			)
-		if gh not in {h["name"] for h in growing.get(r.item_code, [])}:
-			frappe.throw(_("{0} has no running crop cycle of {1}.").format(gh, r.item_name))
-		out[r.name] = gh
+		for gh in split:
+			if gh not in known:
+				frappe.throw(_("{0} has no running crop cycle of {1}.").format(gh, r.item_name))
+		out[r.name] = split
 	return out
 
 
@@ -316,9 +326,10 @@ def confirmation_after_insert(doc, method=None):
 	forecast = _forecast({variety}, {h["name"] for h in houses}, add_days(so.delivery_date, -1))
 	chosen = (frappe.flags.get("sea_freight_greenhouses") or {}).get(doc.sales_order_item)
 	if chosen:
-		# the greenhouse picked beside the team on Allocation Planning cuts the whole line
-		split = {chosen: stems}
-		houses = [h for h in houses if h["name"] == chosen] or [{"name": chosen, "farm": "", "area": 0.0}]
+		# the greenhouses (and their stems) chosen on Allocation Planning; one alone cuts the whole line
+		split = dict(chosen) if len(chosen) > 1 else {next(iter(chosen)): stems}
+		named = {h["name"]: h for h in houses}
+		houses = [named.get(g) or {"name": g, "farm": "", "area": 0.0} for g in split]
 	else:
 		split = suggest(variety, stems, houses, forecast)
 	rows = [
