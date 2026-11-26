@@ -383,22 +383,29 @@ def _plan_name(day, farm):
 	return cache[key]
 
 
+def _order_kind():
+	"""Allocation Planning's Orders filter, sent by the page as `order_kind`: Quality B (webstore, Shopping Cart)
+	orders, else export -- every other order. Any other caller plans export."""
+	return "qualityb" if (frappe.form_dict or {}).get("order_kind") == "qualityb" else "export"
+
+
 def _lines(day, to=None):
-	"""The lines for a delivery day, or for every day from `day` to `to` (read once per request)."""
+	"""The lines for a delivery day, or for every day from `day` to `to` (read once per request), of the orders
+	the Orders filter shows (_order_kind)."""
+	kind = _order_kind()
+	op = "=" if kind == "qualityb" else "!="
 
 	def read():
-		# Quality B (webstore, Shopping Cart) orders are not planned: their pick lists come from Grade B buckets
 		lines = pipeline.fetch_lines(
 			delivery_from=day,
 			delivery_to=to or day,
-			extra_where="AND IFNULL(so.order_type, '') != 'Shopping Cart'",
+			extra_where="AND IFNULL(so.order_type, '') " + op + " 'Shopping Cart'",
 		)
 		pipeline.attach_pipeline(lines)
 		return lines
 
-	return list(
-		_memo(("lines", str(day), str(to or day)), lambda: _shared(("lines", str(day), str(to or day)), read))
-	)
+	key = ("lines", str(day), str(to or day), kind)
+	return list(_memo(key, lambda: _shared(key, read)))
 
 
 def _lines_for(day, farm, to=None):
