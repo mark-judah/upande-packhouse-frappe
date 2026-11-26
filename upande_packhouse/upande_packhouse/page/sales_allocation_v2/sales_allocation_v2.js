@@ -2834,11 +2834,13 @@ frappe.pages["sales-allocation-v2"]._show_substitute_dialog = function (so_item)
 							variety: o.variety,
 						},
 						freeze: true,
-						callback: () => {
-							frappe.show_alert({
+						callback: (r) => {
+							const m = r.message || {};
+							if (m.summary) frappe.msgprint({ message: m.summary, indicator: "green" });
+							else frappe.show_alert({
 								message: __("{0} added for {1} stems of {2}", [
 									o.variety,
-									Math.round(o.adds),
+									Math.round((r.message || {}).adds || o.adds),
 									s.variety,
 								]),
 								indicator: "green",
@@ -6946,12 +6948,14 @@ frappe.pages["sales-allocation-v2"]._add_variety = function (d, line, s, o) {
 			variety: o.variety,
 		},
 		freeze: true,
-		callback: () => {
-			frappe.show_alert({
+		callback: (r) => {
+			const m = r.message || {};
+			if (m.summary) frappe.msgprint({ message: m.summary, indicator: "green" });
+			else frappe.show_alert({
 				message: __("{0} added to {1} for {2} stems of {3}", [
 					o.variety,
 					line.order_name || line.sales_order,
-					Math.round(o.adds),
+					Math.round(m.adds || o.adds),
 					s.variety,
 				]),
 				indicator: "green",
