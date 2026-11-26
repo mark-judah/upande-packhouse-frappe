@@ -394,10 +394,17 @@
   .apx .pg-safe__tile>span:first-child{font-size:12px;color:var(--ax-mute)}.apx .pg-safe__tile small{font-size:12px;color:var(--ax-ink3)}
   .apx-tablecard{padding:8px 0 16px}
   /* the open order's or variety's table keeps its column titles in view while its pane scrolls */
-  /* the order's header stays put: only the table scrolls sideways when it is wider than the pane */
-  #pg-detail .apx-tablecard{width:100%;max-width:100%;box-sizing:border-box;overflow:hidden}
-  #pg-detail .apx-tablecard .ph-table-wrap{overflow-x:auto;max-width:100%}
-  .apx .pg-grid>.pg-detail{overflow-x:hidden}
+  #pg-detail .apx-tablecard,#pg-detail .apx-tablecard .ph-table-wrap{overflow:visible}
+  #pg-detail .apx-tablecard{min-width:100%;width:max-content;box-sizing:border-box}
+  /* an open order: its header stays put, only its table scrolls (both ways), column titles kept in view */
+  #pg-detail:has(#pg-o-all) .apx-tablecard{width:100%;max-width:100%;min-width:0;overflow:hidden}
+  #pg-detail:has(#pg-o-all) .apx-tablecard .ph-table-wrap{overflow:auto;max-width:100%}
+  @media (min-width:981px){
+    .apx .pg-grid>.pg-detail:has(#pg-o-all){overflow:hidden}
+    .apx .pg-grid>.pg-detail:has(#pg-o-all)>.apx-card:first-child{flex:none}
+    .apx .pg-grid>.pg-detail:has(#pg-o-all)>.apx-tablecard{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+    .apx .pg-grid>.pg-detail:has(#pg-o-all)>.apx-tablecard>.ph-table-wrap{flex:1 1 auto;min-height:0}
+  }
   #pg-detail .apx-tablecard thead th{position:sticky;top:0;z-index:3;background:#fff;box-shadow:inset 0 -1px 0 rgba(10,10,10,.08)}
   .apx-table{width:100%;border-collapse:collapse;font-size:13px;min-width:1100px}
   .apx-table thead th{color:var(--ax-mute);font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-align:left;font-weight:500;padding:12px 8px;background:transparent;border:0}
