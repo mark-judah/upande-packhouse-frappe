@@ -433,8 +433,13 @@ before_tests = "upande_packhouse.install.before_tests"
 # Ignore links to specified DocTypes when deleting documents
 # -----------------------------------------------------------
 
-# a deleted pick list's history (transfer events, the trips that carried it) keeps its name
-ignore_links_on_delete = ["Bucket Transfer Event", "Bucket Request Trip Bucket", "Bucket Request Trip Order"]
+# a deleted pick list's history (transfer events, the trips that carried it, its allocation log) keeps its name
+ignore_links_on_delete = [
+	"Bucket Transfer Event",
+	"Bucket Request Trip Bucket",
+	"Bucket Request Trip Order",
+	"Allocation Log",
+]
 
 # Request Events
 # ----------------
