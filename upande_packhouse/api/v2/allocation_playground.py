@@ -519,6 +519,16 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 			p["by_farm"][r.shelf_farm] = p["by_farm"].get(r.shelf_farm, 0.0) + r.qb_free
 		_take_outstanding(out, farms)
 		return out
+	if _order_kind() == "seafreight":
+		# harvested for the order: nothing from the shelf or the cold room, only the cutting day's harvest (the
+		# forecast is added by the board as for export)
+		if day and varieties:
+			cut = getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
+			for key, h in received.harvested_day(cut, _growing_farms(farm), varieties).items():
+				p = entry(key)
+				p["harvested"] = h["harvested"]
+				p["on_the_way"] = h["not_received"]
+		return out
 	# every variety's stock rows once per request: the board, the checks and each day of a week read the same shelf
 	every = _memo(
 		("bucket_rows", tuple(farms) if farms is not None else None),

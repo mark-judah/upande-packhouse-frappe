@@ -289,7 +289,11 @@ doc_events = {
 	},
 	"Allocation Confirmation": {
 		# a Quality B line planned for a team: its pick list goes to that team
-		"after_insert": "upande_packhouse.quality_b.confirmation_after_insert",
+		"after_insert": [
+			"upande_packhouse.quality_b.confirmation_after_insert",
+			# a sea freight line planned: its greenhouses, for the production app
+			"upande_packhouse.api.v2.sea_freight_plan.confirmation_after_insert",
+		],
 	},
 	"Sales Order": {
 		# A Quality B (webstore, Shopping Cart) order gets its pick lists from Grade B buckets.

@@ -116,6 +116,63 @@ def suggest(variety, ordered, houses, forecast):
 	return _split(int(ordered), weights)
 
 
+def confirmation_after_insert(doc, method=None):
+	"""Allocation Confirmation after_insert: a sea freight line confirmed on Allocation Planning gets its
+	greenhouse plan -- its confirmed stems split over the greenhouses growing the variety by their forecast to
+	delivery (suggest) -- for the production app. Confirming the line again plans it again."""
+	if not frappe.db.table_exists(PLAN) or not frappe.db.has_column(
+		"Sales Order", "custom_mode_of_transport"
+	):
+		return
+	so = frappe.db.get_value(
+		"Sales Order", doc.sales_order, ["custom_mode_of_transport", "delivery_date"], as_dict=True
+	)
+	if not so or so.custom_mode_of_transport != SEA_FREIGHT:
+		return
+	from upande_packhouse.allocation_plan import LIVE
+
+	variety = doc.variety or doc.ordered_variety
+	stems = flt(
+		frappe.db.sql(
+			"""SELECT SUM(stems) FROM `tabAllocation Confirmation`
+			WHERE sales_order_item = %s AND status IN %s""",
+			(doc.sales_order_item, tuple(LIVE)),
+		)[0][0]
+	) or flt(doc.stems)
+	houses = _growing([variety]).get(variety, [])
+	forecast = _forecast({variety}, {h["name"] for h in houses}, add_days(so.delivery_date, -1))
+	split = suggest(variety, stems, houses, forecast)
+	rows = [
+		{
+			"greenhouse": h["name"],
+			"farm": h["farm"] or None,
+			"stems": flt(split.get(h["name"])),
+			"forecast": forecast.get((variety, h["name"]), 0.0),
+		}
+		for h in houses
+		if flt(split.get(h["name"])) > 0
+	]
+	name = frappe.db.get_value(PLAN, {"sales_order_item": doc.sales_order_item})
+	plan = frappe.get_doc(PLAN, name) if name else frappe.new_doc(PLAN)
+	plan.update(
+		{
+			"sales_order": doc.sales_order,
+			"sales_order_item": doc.sales_order_item,
+			"delivery_date": so.delivery_date,
+			"variety": variety,
+			"stem_length": doc.length or doc.ordered_length or "",
+			"ordered_stems": flt(frappe.db.get_value("Sales Order Item", doc.sales_order_item, "stock_qty")),
+			"planned_stems": sum(r["stems"] for r in rows),
+		}
+	)
+	plan.set("greenhouses", rows)
+	plan.flags.ignore_permissions = True
+	if name:
+		plan.save()
+	else:
+		plan.insert()
+
+
 @frappe.whitelist()
 def get_sea_freight_plan(week: str | None = None, delivery_date: str | None = None):
 	"""The sea freight orders delivering in the week (or on the day), each line with its greenhouses: forecast,
