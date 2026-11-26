@@ -6,13 +6,13 @@
 <div class="apx" id="pg-head" data-default-date="{{ default_delivery_date }}">
 <header class="apx-bar">
   <div class="apx-brand"><span class="apx-eyebrow">Packhouse</span><span class="apx-name">Allocation Planning</span></div>
-  <nav class="apx-nav" id="pg-modes" aria-label="Planning screens"><button type="button" data-value="unconfirmed">Plan &amp; checks</button><button type="button" data-value="crops">Team crops</button><button type="button" data-value="summary">Confirmation summary</button><button type="button" data-value="sequence">Team sequence</button><button type="button" data-value="people">Attendance</button></nav>
+  <nav class="apx-nav" id="pg-modes" aria-label="Planning screens"><button type="button" data-value="unconfirmed">Plan &amp; checks</button><button type="button" data-value="summary">Confirmation summary</button><button type="button" data-value="sequence">Team sequence</button><button type="button" data-value="people">Attendance</button><button type="button" data-value="crops">Team crops</button></nav>
 </header>
 <div class="apx-titlerow">
   <div><h1 class="apx-h1" id="pg-title">Plan</h1><div class="apx-sub" id="pg-sub"></div></div>
   <div class="apx-ctrls">
     <label class="apx-pill">Sales farm<select id="pg-farm" aria-label="Sales farm">{% for f in sales_farms %}<option value="{{ f }}"{% if f == default_farm %} selected{% endif %}>{{ f }}</option>{% endfor %}</select></label>
-    <label class="apx-pill" id="pg-date-wrap">Delivery<input type="date" id="pg-date" aria-label="Delivery date"></label>
+    <label class="apx-pill" id="pg-date-wrap"><span id="pg-date-lbl">Delivery</span><input type="date" id="pg-date" aria-label="Delivery date"></label>
     <label class="apx-pill" id="pg-week-wrap">Week<select id="pg-week" aria-label="Week"></select></label>
     <label class="apx-pill" id="pg-okind-wrap">Orders<select id="pg-okind" aria-label="Orders"><option value="">Export</option><option value="qualityb">Quality B</option></select></label>
     <label class="apx-pill" id="pg-sumteam-wrap" hidden>Team<select id="pg-sumteam" aria-label="Team"><option value="">All teams</option></select></label>
@@ -560,6 +560,10 @@
   const shiftWeek = (wk, k) => { const m = mondayOf(wk); m.setDate(m.getDate() + 7 * k); return isoWeek(m); };
   const nextWeek = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return isoWeek(d); })();
   const weekLabel = (wk) => { const a = mondayOf(wk), b = new Date(a); b.setDate(a.getDate() + 6); return "Week " + Number(wk.split("-W")[1]) + " · " + PH.fmt.date(ymd(a), true) + " – " + PH.fmt.date(ymd(b), true); };
+  // Attendance and Workforce are for the processing day: the day before the delivery planned
+  const procMode = () => S.mode === "people" || S.mode === "workforce";
+  const shiftDay = (v, k) => { const d = parseYmd(v); d.setDate(d.getDate() + k); return ymd(d); };
+  const procDay = (v) => shiftDay(v, -1);
   const WEEK_MODES = ["unconfirmed", "checks", "nonmoving", "summary", "confirmed"];
   const parseYmd = (v) => { const [y, m, d] = String(v).split("-").map(Number); return new Date(y, m - 1, d); };
   const realDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "") && +String(v).slice(0, 4) >= 1900;
@@ -601,8 +605,10 @@
   // The delivery date: on the week's pages it is one of the chosen week's days.
   function paintDate() {
     const inp = $("pg-date");
+    $("pg-date-lbl").textContent = procMode() ? "Processing" : "Delivery";
+    inp.setAttribute("aria-label", procMode() ? "Processing date" : "Delivery date");
     // a whole week is planned: the box stays empty, so picking any day -- the one it held too -- plans that day
-    inp.value = WEEK_MODES.includes(S.mode) && weekScope() ? "" : S.date || "";
+    inp.value = WEEK_MODES.includes(S.mode) && weekScope() ? "" : procMode() && realDate(S.date) ? procDay(S.date) : S.date || "";
     if (inp._showDate) inp._showDate();
     const a = mondayOf(S.week), b = new Date(a);
     b.setDate(a.getDate() + 6);
@@ -623,8 +629,10 @@
   });
   // A delivery date: that one day is planned, and its week is picked.
   $("pg-date").addEventListener("change", () => {
-    const v = $("pg-date").value;
-    if (!realDate(v)) return;
+    const picked = $("pg-date").value;
+    if (!realDate(picked)) return;
+    // on Attendance the day picked is the processing day: its orders deliver the day after
+    const v = procMode() ? shiftDay(picked, 1) : picked;
     st.set({ date: v, week: isoWeek(parseYmd(v)), day: WEEK_MODES.includes(S.mode) ? "1" : "" });
   });
   $("pg-modes").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) st.set({ tab: b.dataset.value }); });
@@ -753,8 +761,8 @@
 
   // The title row: what the tab is about, for the day chosen.
   function setHead(sub) {
-    const day = S.date ? PH.fmt.date(S.date, true) : "", wk = weekScope() ? "week " + Number(S.week.split("-W")[1]) : day;
-    const T = { unconfirmed: "Plan for " + wk, checks: "Plan for " + wk, nonmoving: "Plan for " + wk, sequence: "Team sequence · " + day, summary: "Confirmation summary · " + wk, confirmed: "Confirmed · " + wk, crops: "Packing team crops", people: "Attendance · " + day, workforce: "Workforce · " + day };
+    const day = S.date ? PH.fmt.date(S.date, true) : "", pday = realDate(S.date) ? PH.fmt.date(procDay(S.date), true) : day, wk = weekScope() ? "week " + Number(S.week.split("-W")[1]) : day;
+    const T = { unconfirmed: "Plan for " + wk, checks: "Plan for " + wk, nonmoving: "Plan for " + wk, sequence: "Team sequence · " + day, summary: "Confirmation summary · " + wk, confirmed: "Confirmed · " + wk, crops: "Packing team crops", people: "Attendance · " + pday, workforce: "Workforce · " + pday };
     $("pg-title").textContent = T[S.mode] || "Plan for " + day;
     if (sub !== undefined) S.subs = { ...(S.subs || {}), [S.mode]: sub };
     $("pg-sub").textContent = (S.subs || {})[S.mode] || "";

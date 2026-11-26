@@ -16,7 +16,7 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, getdate
+from frappe.utils import add_days, cint, flt, getdate
 
 from upande_packhouse import allocation_plan as plans
 from upande_packhouse.api.v2 import allocation_playground as pg
@@ -656,7 +656,8 @@ def _add_workload(teams, day, crop_boxes, queues):
 	last box is packed, from the team's start time."""
 	from datetime import datetime, timedelta
 
-	people = team_people(day, [t["team"] for t in teams])
+	# the people at work on the processing day: a delivery day's boxes are packed the day before
+	people = team_people(add_days(day, -1), [t["team"] for t in teams])
 	rate = rates()
 	starts = {
 		name: _hhmm(start)

@@ -161,9 +161,10 @@ def _present(employee_ids, day):
 
 @frappe.whitelist()
 def get_people(delivery_date: str | None = None, branch: str | None = None):
-	"""Post Harvest people per designation at one branch (the first when none is asked) on the planning
-	date: headcount, off, sick, leave, expected, and present once the day has started."""
-	day = getdate(pg._day(delivery_date))
+	"""Post Harvest people per designation at one branch (the first when none is asked) on the processing
+	day -- the day before `delivery_date`, when its orders are packed: headcount, off, sick, leave, expected,
+	and present once the day has started."""
+	day = getdate(add_days(pg._day(delivery_date), -1))
 	everyone = _employees(day)
 	branches = sorted({e.branch for e in everyone if e.branch})
 	if branch not in branches:
