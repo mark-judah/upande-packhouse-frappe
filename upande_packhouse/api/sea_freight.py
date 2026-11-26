@@ -123,6 +123,22 @@ def orders():
 	)
 	if not sos:
 		return {"orders": []}
+	# only what Allocation Planning sequenced and planned to a greenhouse is expected here
+	planned = (
+		set(
+			frappe.db.sql_list(
+				"""SELECT DISTINCT p.sales_order FROM `tabSea Freight Greenhouse Plan` p
+				JOIN `tabSea Freight Greenhouse Plan Row` r ON r.parent = p.name AND r.stems > 0
+				WHERE p.sales_order IN %(s)s""",
+				{"s": tuple(s.name for s in sos)},
+			)
+		)
+		if frappe.db.table_exists("Sea Freight Greenhouse Plan")
+		else set()
+	)
+	sos = [s for s in sos if s.name in planned and int(s.get("custom_allocation_sequence") or 0) > 0]
+	if not sos:
+		return {"orders": []}
 	# expected in the order they are harvested: Allocation Planning's sequence for each delivery day (the ones not
 	# planned yet last); one may still arrive sooner and is received whenever it comes
 	sos.sort(
