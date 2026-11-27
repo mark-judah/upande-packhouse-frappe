@@ -1659,6 +1659,7 @@ def get_sales_order_items_with_buckets(
 				"shelf_location": b["shelf_location"],
 				"shelf_farm": b["shelf_farm"],
 				"harvest_date": b["harvest_date"],
+				"date_added": b.get("date_added"),
 				"warehouse": b["warehouse"],
 				"cut_stage": b.get("cut_stage", ""),
 				"length_status": status,
@@ -1717,7 +1718,20 @@ def get_sales_order_items_with_buckets(
 			# buckets held for other orders (nothing free here) go after every free one
 			held = 1 if full_held(b) else 0
 			remote = 0 if farm_config.get(b["shelf_farm"], {}).get("sales_shelf") else 1
-			return (held, remote, b["age_days"] * -1)
+			# same harvest day: the bucket this line already takes from, then one already started, before a
+			# full one is opened -- a top-up finishes the bucket instead of leaving stems on two
+			started = 0 if flt(b["allocated_to_this_item"]) > 0 else 1
+			opened = 0 if flt(b["available_qty"]) < flt(b["total_qty"]) - 1e-9 else 1
+			return (
+				held,
+				remote,
+				b["age_days"] * -1,
+				started,
+				opened,
+				flt(b["available_qty"]),
+				str(b.get("date_added") or ""),
+				b["bucket_id"] or "",
+			)
 
 		exact.sort(key=sort_key)
 		downgrade.sort(key=sort_key)
