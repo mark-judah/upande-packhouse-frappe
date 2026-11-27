@@ -116,15 +116,16 @@ def checkNotFoundShelf(
 
 
 def evidence(pick_list_item, scanned_shelf, shelf_photo):
-	"""The shelf and photo of a not-found report, checked: the right shelf, and a photo uploaded to this site.
-	Throws when either is missing."""
+	"""The shelf of a not-found report, checked: the shelf the bucket was put on, scanned -- that is the evidence.
+	A photo is optional (older app builds still send one): kept only when this user uploaded it for this report.
+	Throws when the shelf is missing or wrong."""
 	ok, expected, scanned, message = shelf_check(pick_list_item, scanned_shelf)
 	if not ok:
 		frappe.throw(message, title=_("Scan the shelf"))
 	photo = (shelf_photo or "").strip()
 	# a shelf photo this user uploaded for this report -- not any file on the site, not an old report's
 	fresh = frappe.utils.add_to_date(frappe.utils.now_datetime(), hours=-PHOTO_HOURS)
-	if not photo or not frappe.db.exists(
+	if photo and not frappe.db.exists(
 		"File",
 		{
 			"file_url": photo,
@@ -133,9 +134,7 @@ def evidence(pick_list_item, scanned_shelf, shelf_photo):
 			"creation": (">=", fresh),
 		},
 	):
-		frappe.throw(
-			_("Take a photo of shelf {0} first.").format(expected or scanned), title=_("Shelf photo")
-		)
+		photo = ""
 	return {"scanned_shelf": scanned, "shelf_photo": photo}
 
 
