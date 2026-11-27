@@ -58,3 +58,49 @@ class TestWaitAtThirdFarm(unittest.TestCase):
 	def test_not_in_transit(self):
 		out, set_rows, _d = self._run([], {})
 		self.assertEqual((out, set_rows), ([], []))
+
+
+def _moving(parent, farm, src, transit=1, truck="KDP 283L"):
+	return frappe._dict(
+		parent=parent,
+		farm=farm,
+		source_warehouse="{0} Receiving Cold Store - KR".format(src),
+		transit=transit,
+		truck=truck,
+	)
+
+
+class TestThirdFarmShelvingBlock(unittest.TestCase):
+	def _run(self, rows, hubs, farm):
+		with (
+			patch.object(tf.frappe.db, "sql", return_value=rows),
+			patch.object(tf.ts, "opl_hubs", return_value=hubs),
+		):
+			return tf.third_farm_shelving_block("0H21WD", farm)
+
+	def test_a_third_farm_is_refused(self):
+		msg = self._run([_moving("OPL-1", "Kaptumbo", "Kaptumbo")], {"OPL-1": "Kapkolia"}, "Chepsito")
+		self.assertIn("can't be shelved at Chepsito", msg)
+		self.assertIn("Shelve it at Kapkolia, or back at Kaptumbo", msg)
+		self.assertIn("on KDP 283L", msg)
+
+	def test_its_sales_farm_is_its_arrival(self):
+		self.assertIsNone(
+			self._run([_moving("OPL-1", "Kaptumbo", "Kaptumbo")], {"OPL-1": "Kapkolia"}, "Kapkolia")
+		)
+
+	def test_back_at_the_farm_it_left(self):
+		self.assertIsNone(
+			self._run([_moving("OPL-1", "Kaptumbo", "Kaptumbo")], {"OPL-1": "Kapkolia"}, "kaptumbo")
+		)
+
+	def test_on_a_trolley_at_another_farm_is_refused(self):
+		msg = self._run([_moving("OPL-1", "Simotwo", "Simotwo", 0, None)], {"OPL-1": "Kapkolia"}, "Chepsito")
+		self.assertIn("on a trolley", msg)
+
+	def test_any_of_its_orders_may_take_it(self):
+		rows = [_moving("OPL-1", "Kaptumbo", "Kaptumbo"), _moving("OPL-2", "Kaptumbo", "Kaptumbo")]
+		self.assertIsNone(self._run(rows, {"OPL-1": "Kapkolia", "OPL-2": "Chepsito"}, "Chepsito"))
+
+	def test_not_moving(self):
+		self.assertIsNone(self._run([], {}, "Chepsito"))
