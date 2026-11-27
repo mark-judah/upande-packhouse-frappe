@@ -137,6 +137,9 @@ class UnitTestQualityBOrders(UnitTestCase):
 		from upande_packhouse.upande_packhouse.page.sales_allocation_v2 import sales_allocation_v2 as sa
 
 		seen = []
+		# the column checks read the real tables before every query is captured: cached, they need no query
+		for dt in ("Sales Order", "Sales Order Item"):
+			sa.frappe.db.get_table_columns(dt)
 
 		def capture(sql, params=None, *args, **kwargs):
 			seen.append(sql)
