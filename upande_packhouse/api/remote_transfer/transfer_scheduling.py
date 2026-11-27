@@ -304,6 +304,46 @@ def opl_hub(opl):
 	return opl_hubs([opl]).get(opl) or transfer_hub(required=False)
 
 
+#: One trip from a farm carries every sales farm's buckets: each sales farm's go on trolleys of their own and are
+#: taken off where the truck reaches that sales farm (whichever it reaches first). A trip's `sales_farm` is its
+#: truck's home (its route's sales farm); the sales farms it delivers to are its orders' (trip_sales_farms).
+MULTI_SALES_FARM_TRIPS = True
+
+
+def hubs_share_trip(trip_hub_, row_hub_):
+	"""A row for sales farm `row_hub_` may go on a trip of sales farm `trip_hub_`."""
+	return MULTI_SALES_FARM_TRIPS or not trip_hub_ or not row_hub_ or trip_hub_ == row_hub_
+
+
+def trip_sales_farms(doc):
+	"""The sales farms a trip delivers to: its buckets' orders' (else its planned orders'), else its own hub."""
+	if doc is None:
+		return []
+	opls = {b.order_pick_list for b in doc.get("trip_buckets") or [] if b.order_pick_list}
+	opls = opls or {o.order_pick_list for o in doc.get("orders") or [] if o.order_pick_list}
+	hubs = set(opl_hubs(list(opls)).values()) - {None, ""} if opls else set()
+	return sorted(hubs) or [h for h in [trip_hub(doc)] if h]
+
+
+def bucket_hubs_on_trip(doc):
+	"""{(order pick list, BUCKET): the sales farm it goes to} for every bucket the trip carries."""
+	rows = doc.get("trip_buckets") or []
+	hubs = opl_hubs(list({b.order_pick_list for b in rows if b.order_pick_list})) if rows else {}
+	home = trip_hub(doc)
+	return {(b.order_pick_list, (b.bucket or "").upper()): hubs.get(b.order_pick_list) or home for b in rows}
+
+
+def arrived_sales_farms(doc):
+	"""The sales farms a trip has reached (its buckets for each taken off there)."""
+	if doc.get("arrived_at"):
+		return set(trip_sales_farms(doc))
+	return {h for h in (doc.get("arrived_sales_farms") or "").split(",") if h}
+
+
+def hub_arrived(doc, hub):
+	return bool(doc.get("arrived_at")) or (hub or "") in arrived_sales_farms(doc)
+
+
 def trip_hub(doc):
 	"""The sales farm a trip delivers to: its own sales_farm, else its orders' (one per
 	trip), else the first Remote Transfer Sales Farm."""
@@ -1456,20 +1496,20 @@ def _end_trip_if_shelved(doc):
 	# A bucket sitting on a hub shelf since the trip's day has arrived, even when its
 	# pick row was never flagged (shelved under another order's row, or the shelving
 	# scan's trip update failed). Bucket ids are reused, hence the date.
-	hub = trip_hub(doc)
+	hubs = tuple(trip_sales_farms(doc))
 	on_hub_shelf = (
 		set(
 			frappe.db.sql_list(
 				"""SELECT UPPER(bucket_id) FROM `tabShelf Item`
-				WHERE farm = %(hub)s AND UPPER(bucket_id) IN %(buckets)s AND creation >= %(since)s""",
+				WHERE farm IN %(hubs)s AND UPPER(bucket_id) IN %(buckets)s AND creation >= %(since)s""",
 				{
-					"hub": hub,
+					"hubs": hubs,
 					"buckets": tuple({(r.bucket or "").upper() for r in rows}),
 					"since": str(doc.trip_date),
 				},
 			)
 		)
-		if hub
+		if hubs
 		else set()
 	)
 	now = frappe.utils.now()
@@ -1611,7 +1651,8 @@ def auto_receive_trucks_for_bucket(bucket_id):
 				},
 			)
 			# A packhouse bucket never rode the truck, whatever its stale truck flag says.
-			arrived = [r for r in arrived if r.farm and r.farm != trip_hub(doc)]
+			own_hub = opl_hubs(list({r.opl for r in arrived})) if arrived else {}
+			arrived = [r for r in arrived if r.farm and r.farm != (own_hub.get(r.opl) or trip_hub(doc))]
 			if not elsewhere:
 				_add_trip_buckets(doc, arrived, stamp=False)
 			if _end_trip_if_shelved(doc):
@@ -1877,6 +1918,12 @@ def _settle_held_trip(doc, how, estimate=False):
 	if not reached:
 		return False
 	hub = trip_hub(doc) or ""
+	if len(trip_sales_farms(doc)) > 1:
+		of = bucket_hubs_on_trip(doc)
+		reached_hubs = sorted(
+			{of.get((r.order_pick_list, (r.bucket or "").upper())) for r in reached} - {None}
+		)
+		hub = reached_hubs[0] if len(reached_hubs) == 1 else hub
 	was = doc.status
 	# A farm none of whose loads reached the hub has not been left: the truck dropped the other farms first
 	# (KAS 866Q 2026-11-25: Simotwo shelved at 10:14 put Kaptumbo, still loading until 11:54, in transit and
@@ -2036,11 +2083,7 @@ def _busy_trip_is_back(busy, doc):
 		str(r.loaded_at) >= since for r in doc.get("trip_buckets") or [] if r.loaded_at and not r.off_truck
 	):
 		return False
-	_mark_arrived(
-		busy,
-		trip_hub(busy) or "the packhouse",
-		"{0} loaded {1} after it left".format(busy.vehicle, doc.name),
-	)
+	_mark_arrived(busy, None, "{0} loaded {1} after it left".format(busy.vehicle, doc.name))
 	return True
 
 
@@ -2803,8 +2846,9 @@ def _left_farms(doc):
 	"""The farms the trip's truck has left, with nothing more to collect there: every
 	farm once it is dispatched, else its departed stops."""
 	if doc.status == "Dispatched":
-		hub = trip_hub(doc)
-		return {o.farm for o in doc.orders if o.farm and o.farm != hub}
+		hubs = opl_hubs(list({o.order_pick_list for o in doc.orders if o.order_pick_list}))
+		home = trip_hub(doc)
+		return {o.farm for o in doc.orders if o.farm and o.farm != (hubs.get(o.order_pick_list) or home)}
 	if doc.status in ACTIVE_TRIP_STATUSES:
 		return set(_departed(doc))
 	return set()
@@ -5000,7 +5044,7 @@ def farm_holders(
 	for name, rows in live.items():
 		r = rows[0]
 		hub = hubs.get(name)
-		if want_hub and hub != want_hub:
+		if want_hub and not hubs_share_trip(hub, want_hub):
 			continue
 		farms = _farms_of_rows(rows, hub)
 		if len(farms) != 1:
@@ -5107,7 +5151,7 @@ def _add_rows_to_trip(name, rows):
 	hub = trip_hub(doc)
 	added, left = [], []
 	for row in with_hubs(rows):
-		if (have and have != {row["farm"]}) or (hub and row["sales_farm"] != hub):
+		if (have and have != {row["farm"]}) or not hubs_share_trip(hub, row["sales_farm"]):
 			left.append((row, int(row["buckets"])))
 			continue
 		take = max(0, min(int(row["buckets"]), room))
@@ -5204,7 +5248,10 @@ def _top_up_open_trip(vehicle, date, rows):
 		fit = [
 			r
 			for r in rows
-			if len(have) == 1 and r["farm"] in have and r["farm"] not in gone and row_hub(r) == hub
+			if len(have) == 1
+			and r["farm"] in have
+			and r["farm"] not in gone
+			and hubs_share_trip(hub, row_hub(r))
 		]
 		if not fit:
 			continue
@@ -5436,7 +5483,9 @@ def _save_trip(
 	# One farm per trip: a trip edited by name keeps rows of one farm.
 	if existing:
 		hub = trip_hub_of(name)
-		other = sorted({r["sales_farm"] for r in rows if r["sales_farm"] and r["sales_farm"] != hub})
+		other = sorted(
+			{r["sales_farm"] for r in rows if r["sales_farm"] and not hubs_share_trip(hub, r["sales_farm"])}
+		)
 		if other:
 			return {
 				"status": "error",
@@ -5546,7 +5595,12 @@ def _save_trip(
 	# A truck with no route: one trip per farm and sales farm (a trip edited by name is one already).
 	groups = {}
 	for r in rows:
-		groups.setdefault(("", "") if existing else (r["farm"] or "", r["sales_farm"] or ""), []).append(r)
+		groups.setdefault(
+			("", "")
+			if existing
+			else (r["farm"] or "", "" if MULTI_SALES_FARM_TRIPS else (r["sales_farm"] or "")),
+			[],
+		).append(r)
 	for farm_rows in groups.values():
 		total_buckets = sum(r["buckets"] for r in farm_rows)
 		if existing:
@@ -5707,7 +5761,7 @@ def _open_run_room(vehicle, date, farm, hub=None):
 
 	out = []
 	for run in _day_runs(vehicle, date):
-		if not _run_open(run) or farm not in run["stops"] or (hub and run.get("hub") != hub):
+		if not _run_open(run) or farm not in run["stops"] or not hubs_share_trip(run.get("hub"), hub):
 			continue
 		room = cap if cap else 10**9
 		if run["trip"]:
@@ -5728,7 +5782,7 @@ def _open_run_room(vehicle, date, farm, hub=None):
 		order_by="creation asc",
 	):
 		t = frappe.get_doc("Bucket Request Trip", name)
-		if farm in _departed(t) or trip_farms(t) != {farm} or (hub and trip_hub(t) != hub):
+		if farm in _departed(t) or trip_farms(t) != {farm} or not hubs_share_trip(trip_hub(t), hub):
 			continue
 		out.append(
 			(
@@ -5779,7 +5833,7 @@ def _split_into_runs(vehicle, date, rows, skip_full=False, only=None):
 			for sl in slots
 			if row["farm"] in sl["stops"]
 			and row["farm"] not in sl["departed"]
-			and (sl.get("hub") or row["sales_farm"]) == row["sales_farm"]
+			and hubs_share_trip(sl.get("hub"), row["sales_farm"])
 		]
 		for sl in visits:
 			take = min(left, sl["room"])
@@ -6216,8 +6270,8 @@ def _fold_trips(keep, rest, cap, note):
 @frappe.whitelist(methods=["POST"])
 @guard(roles=STAFF)
 def combineTrips(trips: str | list):
-	"""Bucket Logistics: one trip for the same truck at the same farm on the same day, delivering to the same sales
-	farm (a trip drives to one sales farm: trips for different sales farms stay apart). Only trips that have not
+	"""Bucket Logistics: one trip for the same truck at the same farm on the same day (every sales farm's buckets on
+	it, see MULTI_SALES_FARM_TRIPS). Only trips that have not
 	left the farm, within the truck's room. The earliest run is kept; the others fold into it."""
 	names = json.loads(trips) if isinstance(trips, str) else list(trips or [])
 	names = list(dict.fromkeys(n for n in names if n))
@@ -6234,7 +6288,7 @@ def combineTrips(trips: str | list):
 			"message": _("Only trips of one truck, to one farm, on one day can be combined."),
 		}
 	hubs = {trip_hub(d) for d in docs} - {None}
-	if len(hubs) > 1:
+	if len(hubs) > 1 and not MULTI_SALES_FARM_TRIPS:
 		return {
 			"status": "error",
 			"message": _("These trips deliver to {0}: a trip drives to one sales farm.").format(
@@ -7501,12 +7555,36 @@ def _trip_shelf_state(doc):
 
 
 def _mark_arrived(doc, hub, how):
-	"""Stamp a dispatched trip as arrived at the hub, and log every bucket still on it."""
-	# Only these two fields: a full save collides with a shelving scan saving the same
-	# trip (TimestampMismatchError) and the arrival is rolled back.
-	doc.db_set({"arrived_at": frappe.utils.now(), "arrived_by": frappe.session.user})
-	# Traceability: every bucket still on this truck reached the packhouse now.
+	"""Stamp a dispatched trip as arrived at the hub, and log every bucket still on it.
+
+	A trip carrying several sales farms' buckets (MULTI_SALES_FARM_TRIPS) arrives one sales farm at a time: only
+	the buckets going to `hub` arrive there, and the trip is stamped arrived (its truck free again) once it has
+	reached every sales farm it carries. `hub` None: every one at once (the truck is known to be back)."""
+	hubs = trip_sales_farms(doc)
+	of = None
+	if hub and len(hubs) > 1 and hub in hubs:
+		done = arrived_sales_farms(doc)
+		if hub in done:
+			return
+		done.add(hub)
+		of = bucket_hubs_on_trip(doc)
+		# Only these fields: a full save collides with a shelving scan saving the same trip.
+		upd = {"arrived_sales_farms": ",".join(sorted(done))}
+		if set(hubs) <= done:
+			upd.update({"arrived_at": frappe.utils.now(), "arrived_by": frappe.session.user})
+		if frappe.get_meta("Bucket Request Trip").has_field("arrived_sales_farms"):
+			doc.db_set(upd)
+		elif "arrived_at" in upd:
+			doc.db_set({k: v for k, v in upd.items() if k != "arrived_sales_farms"})
+	else:
+		# Only these two fields: a full save collides with a shelving scan saving the same
+		# trip (TimestampMismatchError) and the arrival is rolled back.
+		doc.db_set({"arrived_at": frappe.utils.now(), "arrived_by": frappe.session.user})
+		hub = hub or (hubs[0] if len(hubs) == 1 else None)
+	# Traceability: every bucket still on this truck (for this sales farm) reached it now.
 	for b in doc.get("trip_buckets") or []:
+		if of is not None and of.get((b.order_pick_list, (b.bucket or "").upper())) != hub:
+			continue
 		if not b.get("off_truck") and not b.get("shelved"):
 			log_transfer_event(
 				b.bucket,
@@ -7517,14 +7595,27 @@ def _mark_arrived(doc, hub, how):
 				vehicle=doc.vehicle,
 				details="Truck arrived at {0}".format(hub or "the packhouse"),
 			)
-	doc.add_comment("Info", "Truck {0} arrived at {1} — {2}".format(doc.vehicle, hub, how))
+	doc.add_comment(
+		"Info",
+		"Truck {0} arrived at {1} — {2}".format(doc.vehicle, hub or ", ".join(hubs) or "the packhouse", how),
+	)
 
 
 def ensure_arrived(doc, hub=None):
 	"""Any bucket a dispatched trip carried shelved at the hub means the truck got there:
-	stamp it arrived (once). Returns True when it stamped now."""
+	stamp it arrived (once). Returns True when it stamped now. A trip carrying several sales
+	farms' buckets arrives at each sales farm one of its buckets is shelved for."""
 	if doc.get("arrived_at") or doc.status != "Dispatched" or not doc.get("trip_buckets"):
 		return False
+	if len(trip_sales_farms(doc)) > 1:
+		of, done, stamped = bucket_hubs_on_trip(doc), arrived_sales_farms(doc), False
+		for b in _trip_shelf_state(doc):
+			h = of.get((b["opl"], (b["bucket"] or "").upper()))
+			if b["shelved"] and h and h not in done:
+				_mark_arrived(doc, h, "bucket {0} shelved there".format(b["bucket"]))
+				done.add(h)
+				stamped = True
+		return stamped
 	first = next((b for b in _trip_shelf_state(doc) if b["shelved"]), None)
 	if not first:
 		return False
@@ -7566,8 +7657,16 @@ def auto_arrive_for_bucket(bucket):
 			return
 		for name in trips:
 			doc = frappe.get_doc("Bucket Request Trip", name)
-			hub = trip_hub(doc) or "the packhouse"
-			if not doc.get("arrived_at"):
+			# the sales farm this bucket goes to: a trip carrying several arrives at each in turn
+			hub = (
+				next(
+					(h for (opl, b), h in bucket_hubs_on_trip(doc).items() if b == bucket and h),
+					None,
+				)
+				or trip_hub(doc)
+				or "the packhouse"
+			)
+			if not hub_arrived(doc, hub):
 				_mark_arrived(doc, hub, "first bucket ({0}) shelved there".format(bucket))
 				doc.reload()
 			ended = False
@@ -7607,7 +7706,9 @@ def tripArrival(name: str | None = None, farm: str | None = None, action: str = 
 		return {"status": "error", "message": "Trip {0} has not left for {1} yet.".format(name, hub)}
 
 	if action == "arrive" and doc.status == "Dispatched" and not doc.get("arrived_at"):
-		_mark_arrived(doc, hub, "confirmed by {0}".format(frappe.session.user))
+		# a trip for several sales farms arrives at the one confirming it
+		at = farm if farm and farm in trip_sales_farms(doc) else hub
+		_mark_arrived(doc, at, "confirmed by {0}".format(frappe.session.user))
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	elif action == "complete" and doc.status == "Dispatched":
 		if not doc.get("arrived_at"):

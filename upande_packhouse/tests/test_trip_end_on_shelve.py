@@ -33,6 +33,7 @@ class UnitTestTripEndOnShelve(UnitTestCase):
 	def _end(self, doc, shelved=(), in_transit=(), on_hub_shelf=()):
 		with (
 			patch.object(ts, "transfer_hub", return_value="Kapkolia"),
+			patch.object(ts, "trip_sales_farms", return_value=["Kapkolia"]),
 			patch.object(ts.frappe.db, "sql", return_value=_pick_rows(shelved, in_transit)),
 			patch.object(ts.frappe.db, "sql_list", return_value=list(on_hub_shelf)),
 		):

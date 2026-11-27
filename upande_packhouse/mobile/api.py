@@ -7011,6 +7011,12 @@ def shelveBucket():
 
 		blocked = hub_shelving_block(bucket_id, farm)
 		reason = "not_transferred" if blocked else reason
+	if not blocked:
+		# On its way to a sales farm: only that sales farm or the farm it is leaving may shelve it.
+		from upande_packhouse.api.remote_transfer.third_farm import third_farm_shelving_block
+
+		blocked = third_farm_shelving_block(bucket_id, farm)
+		reason = "wrong_farm" if blocked else reason
 	if blocked:
 		from upande_packhouse.api import transfer_control as tc
 
@@ -7020,7 +7026,9 @@ def shelveBucket():
 		frappe.response["data"] = {
 			"status": "failed",
 			"reason": reason,
-			"message": blocked if reason == "not_transferred" else blocked + " Shelve it at the sales farm.",
+			"message": blocked
+			if reason in ("not_transferred", "wrong_farm")
+			else blocked + " Shelve it at the sales farm.",
 			"payload": {"shelf_id": shelf_id, "bucket_id": bucket_id},
 		}
 		return

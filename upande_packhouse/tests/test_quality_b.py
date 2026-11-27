@@ -136,10 +136,13 @@ class UnitTestQualityBOrders(UnitTestCase):
 	def test_shopping_cart_orders_are_never_on_sales_allocation(self):
 		from upande_packhouse.upande_packhouse.page.sales_allocation_v2 import sales_allocation_v2 as sa
 
-		seen = {}
+		seen = []
+		# the column checks read the real tables before every query is captured: cached, they need no query
+		for dt in ("Sales Order", "Sales Order Item"):
+			sa.frappe.db.get_table_columns(dt)
 
-		def capture(sql, params=None, as_dict=False):
-			seen["sql"] = sql
+		def capture(sql, params=None, *args, **kwargs):
+			seen.append(sql)
 			return []
 
 		with (
@@ -149,7 +152,7 @@ class UnitTestQualityBOrders(UnitTestCase):
 			patch.object(sa.frappe.db, "sql", side_effect=capture),
 		):
 			sa.get_pending_sales_orders(delivery_start="2026-11-29", delivery_end="2026-11-29")
-		self.assertIn("IFNULL(so.order_type, '') != 'Shopping Cart'", seen["sql"])
+		self.assertTrue(any("IFNULL(so.order_type, '') != 'Shopping Cart'" in q for q in seen))
 
 
 class UnitTestQualityBIssuing(UnitTestCase):

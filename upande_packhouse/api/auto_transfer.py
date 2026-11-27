@@ -688,7 +688,7 @@ def _run_candidates(routed, farm, holders, hub=None):
 		v
 		for v in by_cap
 		if any(
-			farm in (r.get("stops") or []) and (not hub or (r.get("hub") or hub) == hub) for r in v["runs"]
+			farm in (r.get("stops") or []) and tc.hubs_share_trip(r.get("hub") or hub, hub) for r in v["runs"]
 		)
 	]
 	holding = {v for v, _trip, _w in holders.get(farm, [])}
@@ -817,9 +817,10 @@ def _plan(window=None):
 
 	# Each sales farm is planned on its own: its orders go on the runs of routes from it.
 	loads, topped, graph = [], 0, None
+	graphs = {}
 	dist = {"unreachable": [], "held": [], "partial": [], "waiting": [], "step": None}
 	for hub in hubs:
-		graph = _RoadGraph(hub, data["distances"])
+		graph = graphs[hub] = _RoadGraph(hub, data["distances"])
 		# Farms other trucks already collect from today for this sales farm (its own drafts
 		# are re-planned): one truck per farm at a time — see transfer_scheduling.farm_holders.
 		# Only trips with room hold their farm: a full one lets another truck collect there.
@@ -829,6 +830,13 @@ def _plan(window=None):
 		later = [o for o in all_later if (o.get("sales_farm") or hubs[0]) == hub]
 		if not orders and not later:
 			continue
+		for t in trucks:
+			t["_hub"] = hub
+		if tc.MULTI_SALES_FARM_TRIPS and loads:
+			# One trip per farm for every sales farm: this sales farm's buckets at a farm an earlier sales farm's
+			# trip of this plan already collects at ride on that trip first, as far as it has room.
+			topped += _ride_along(orders, loads, graphs)
+			orders = [o for o in orders if o["open"] > 0]
 		part = _distribute(orders, trucks, graph, moving=moving)
 		for k in ("unreachable", "held", "partial", "waiting"):
 			dist[k] += part[k]
@@ -1343,6 +1351,27 @@ def _consolidate(trucks, graph):
 			else:
 				merged[k] = dict(r)
 		t["rows"] = list(merged.values())
+
+
+def _ride_along(orders, loads, graphs):
+	"""Put `orders`' open buckets at each farm on the trips in `loads` (planned for other sales farms) already
+	collecting there, earliest-planned first, as far as each has room (MUTATES both). Returns the buckets placed."""
+	placed = 0
+	for o in orders:
+		for f in o["open_farms"]:
+			for t in loads:
+				if f["buckets"] <= 0:
+					break
+				if t["rem"] <= 0 or f["farm"] not in t["stops"] or not _one_farm(t, f["farm"]):
+					continue
+				n = min(t["rem"], f["buckets"])
+				t["rows"].append(_trip_row(o, f, n))
+				_load(t, f["farm"], n, graphs.get(t.get("_hub")) or next(iter(graphs.values())))
+				f["buckets"] -= n
+				placed += n
+		o["open_farms"] = [f for f in o["open_farms"] if f["buckets"] > 0]
+		o["open"] = sum(f["buckets"] for f in o["open_farms"])
+	return placed
 
 
 def _trip_row(order, f, n):

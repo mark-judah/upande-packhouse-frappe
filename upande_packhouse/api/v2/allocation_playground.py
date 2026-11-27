@@ -2361,9 +2361,22 @@ def confirm_lines(
 			want = _whole_boxes(soi, want, room)
 		if want > room + 0.0001:
 			frappe.throw(
-				_("Only {0} stems of this line are left to confirm, and you asked for {1}.").format(
-					int(room), int(want)
+				_(
+					"{0} {1} {2}: {3} stems ordered, {4} already allocated, so only {5} are left to confirm "
+					"and you asked for {6}."
+				).format(
+					ln.parent,
+					ln.item_code,
+					ln.custom_length or "",
+					int(flt(ln.ordered_stems)),
+					int(flt(ln.allocated_stems)),
+					int(room),
+					int(want),
 				)
+				if room > 0
+				else _(
+					"{0} {1} {2}: all {3} stems ordered are already allocated, nothing is left to confirm."
+				).format(ln.parent, ln.item_code, ln.custom_length or "", int(flt(ln.ordered_stems)))
 			)
 		info = {
 			"sales_order": ln.parent,

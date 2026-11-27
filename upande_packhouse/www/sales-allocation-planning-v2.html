@@ -1444,6 +1444,11 @@
     const el = document.createElement("div");
     // the stems to confirm: the chosen forecast's, or what the planner types, never more than the order has left
     const cap = Math.max(0, Math.round(l.ordered - (l.allocated || 0) - l.held - l.expected));
+    const taken = () => [(l.allocated || 0) > 0.5 ? n(l.allocated) + " allocated" : "", l.held + l.expected > 0.5 ? n(l.held + l.expected) + " already confirmed" : ""].filter(Boolean).join(" · ");
+    const limit = () => cap > 0
+      ? "Only " + n(cap) + " of the " + n(l.ordered) + " ordered are left to confirm: " + taken() + "."
+      : "Nothing left to confirm: all " + n(l.ordered) + " ordered are taken (" + taken() + ").";
+    let over = false;
     let typed = null;
     const toConfirm = () => Math.max(0, Math.min(cap, typed != null ? typed : Math.round((sc[pick] || {}).stems || 0)));
     const line = (x) => ({ sales_order_item: l.soi, stems: Math.round(Math.min(l.ordered, toConfirm() + l.held + l.expected)), team, stock_farm: rowFarm(l.soi), ...(len ? { length: len } : {}), basis: x.basis });
@@ -1466,13 +1471,14 @@
           const t = tag(x), b = l.per_box > 0 && !members.length ? Math.floor((before + x.stems) / l.per_box + 1e-9) : 0;
           return '<button type="button" class="pg-safe__tile' + (x.i === pick ? " is-on" : "") + '" data-pick="' + x.i + '"><span>' + x.label + "</span><b>" + n(x.stems) + "</b><small>" + (l.per_box > 0 && !members.length ? b + " of " + (l.boxes || "?") + " boxes" : "") + '</small><span class="pg-chip pg-chip--' + t[1] + '">' + PH.esc(t[0]) + "</span></button>";
         }).join("") + "</div>" +
-        '<label class="pg-cap ph-muted" for="pg-ld-stems">Stems to confirm</label><div class="pg-ld-stems"><input id="pg-ld-stems" class="ph-input" type="number" min="0" max="' + cap + '" step="1" inputmode="numeric" value="' + toConfirm() + '"><span class="ph-muted">of ' + n(cap) + " left on the order</span></div>" +
+        '<label class="pg-cap ph-muted" for="pg-ld-stems">Stems to confirm</label><div class="pg-ld-stems"><input id="pg-ld-stems" class="ph-input" type="number" min="0" max="' + cap + '" step="1" inputmode="numeric" value="' + toConfirm() + '"><span class="ph-muted">of ' + n(cap) + " left on the order" + (taken() ? " · " + taken() : "") + "</span></div>" +
         mixTable() + '<div id="pg-ld-hu"></div>';
       el.querySelectorAll("[data-pick]").forEach((t) => (t.onclick = () => { pick = +t.dataset.pick; typed = null; draw(); }));
       const inp = el.querySelector("#pg-ld-stems");
       inp.oninput = inp.onchange = () => {
         const v = inp.value === "" ? 0 : Math.round(+inp.value);
         typed = Math.max(0, Math.min(cap, v));
+        over = v > cap;
         if (v > cap || v < 0) inp.value = typed;
         button();
       };
@@ -1485,7 +1491,8 @@
       const hu = el.querySelector("#pg-ld-hu");
       const why = PH.esc(pool.pool.variety) + " " + PH.esc(len || pool.pool.length) + " has nothing forecast for this line.";
       const noBox = !nothing && !members.length && l.per_box > 0 && fills(toConfirm()) < 1;
-      if (hu) hu.innerHTML = nothing && typed == null ? '<div class="pg-hu pg-hu--red"><p>Nothing to confirm on this basis: ' + why + "</p></div>"
+      if (hu) hu.innerHTML = !(cap > 0) || over ? '<div class="pg-hu pg-hu--red"><p>' + PH.esc(limit()) + "</p></div>"
+        : nothing && typed == null ? '<div class="pg-hu pg-hu--red"><p>Nothing to confirm on this basis: ' + why + "</p></div>"
         : noBox ? '<div class="pg-hu pg-hu--red"><p>This confirmation is not going to fill any box: ' + n(toConfirm()) + " stems of a box of " + n(l.per_box) + ".</p></div>" : "";
     };
     let m = null;
