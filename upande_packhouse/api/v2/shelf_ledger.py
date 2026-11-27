@@ -90,11 +90,29 @@ def get_ledger(farm: str | None = None, day: str | None = None):
 		scope = picked or farms
 		now = now_datetime()
 		d = min(getdate(day or today()), getdate(today()))
-		out = {"success": True, "farms": farms, "farm": ",".join(picked), "day": str(d), "today": str(getdate(today()))}
+		out = {
+			"success": True,
+			"farms": farms,
+			"farm": ",".join(picked),
+			"day": str(d),
+			"today": str(getdate(today())),
+		}
 		if not scope:
-			return dict(out, open=[], moves=[], left_out={"stems": 0, "issues": 0}, phantom={"lots": 0, "stems": 0}, live=None)
+			return dict(
+				out,
+				open=[],
+				moves=[],
+				left_out={"stems": 0, "issues": 0},
+				phantom={"lots": 0, "stems": 0},
+				live=None,
+			)
 		age = float(cfg.get("discard_age") or 6)
-		res = {"open": [], "moves": [], "left_out": {"stems": 0.0, "issues": 0}, "phantom": {"lots": 0, "stems": 0.0}}
+		res = {
+			"open": [],
+			"moves": [],
+			"left_out": {"stems": 0.0, "issues": 0},
+			"phantom": {"lots": 0, "stems": 0.0},
+		}
 		for f in scope:
 			one = build(f, d, now, age)
 			for r in one["open"] + one["moves"]:
@@ -152,18 +170,36 @@ def build(farm, day, now, discard_days):
 		if l.get("context"):
 			continue
 		before = sum(p[1] for p in l["pulls"] if p[0] < start)
-		if l["shelved_on"] < start and (l["exit_at"] is None or l["exit_at"] >= start) and l["q"] - before > 1e-9:
-			opening.append({"s": l["shelf"], "b": l["bucket_id"], "v": l["variety"], "l": l["len"], "q": l["q"] - before})
+		if (
+			l["shelved_on"] < start
+			and (l["exit_at"] is None or l["exit_at"] >= start)
+			and l["q"] - before > 1e-9
+		):
+			opening.append(
+				{"s": l["shelf"], "b": l["bucket_id"], "v": l["variety"], "l": l["len"], "q": l["q"] - before}
+			)
 		if start <= l["shelved_on"] < end:
-			moves.append(_move(l, "i", l["shelved_on"], types.get(l["name"], "Shelved from receiving"), l["q"]))
+			moves.append(
+				_move(l, "i", l["shelved_on"], types.get(l["name"], "Shelved from receiving"), l["q"])
+			)
 		for t, take, pr in l["pulls"]:
 			if start <= t < end:
 				so = order_of.get(pr["opl"]) or ""
 				moves.append(
-					_move(l, "x", t, ISSUED_OFFLINE if pr["off"] else ISSUED, take, ref=(so + " · " if so else "") + pr["opl"], so=so)
+					_move(
+						l,
+						"x",
+						t,
+						ISSUED_OFFLINE if pr["off"] else ISSUED,
+						take,
+						ref=(so + " · " if so else "") + pr["opl"],
+						so=so,
+					)
 				)
 		if l["exit_at"] and start <= l["exit_at"] < end and l["rem"] > 1e-9:
-			moves.append(_move(l, "x", l["exit_at"], l["exit_label"], l["rem"], inferred=l["inferred"], why=l["why"]))
+			moves.append(
+				_move(l, "x", l["exit_at"], l["exit_label"], l["rem"], inferred=l["inferred"], why=l["why"])
+			)
 	moves.sort(key=lambda m: (m["t"], m["k"] != "i"))
 	lo = left_out.get(day, [0.0, 0])
 	return {
@@ -304,7 +340,11 @@ def _date_open_lots(lots, end, age):
 			(harvests if r["t"] == "Harvesting" else entries)[r["b"]].append((r["creation"], r["t"]))
 	for l in never:
 		t0 = l["shelved_on"]
-		cand = [(t, EXIT_ENTRIES[k], f"{k} entry on the bucket, {_stamp(t)}") for t, k in entries[l["bucket_id"]] if t > t0]
+		cand = [
+			(t, EXIT_ENTRIES[k], f"{k} entry on the bucket, {_stamp(t)}")
+			for t, k in entries[l["bucket_id"]]
+			if t > t0
+		]
 		cand += [
 			(t, "Shelved again", f"same bucket and variety shelved again at {_stamp(t)}, with no exit logged")
 			for t in again[(l["bucket_id"], l["variety"])]
@@ -315,7 +355,13 @@ def _date_open_lots(lots, end, age):
 			for t, _k in harvests[l["bucket_id"]]
 			if t > t0
 		]
-		cand.append((t0 + age, "Aged out", f"still open {int(age.total_seconds() // 86400)} days after shelving, past the discard age"))
+		cand.append(
+			(
+				t0 + age,
+				"Aged out",
+				f"still open {int(age.total_seconds() // 86400)} days after shelving, past the discard age",
+			)
+		)
 		t, label, why = min(cand, key=lambda x: x[0])
 		if t < end:
 			l["exit_at"], l["exit_label"], l["inferred"], l["why"] = t, label, 1, why
@@ -343,7 +389,12 @@ def _place_pulls(lots, end):
 	order_of = {}
 	opls = sorted({p["opl"] for p in pulls if p["opl"]})
 	for c in _chunks(opls):
-		order_of.update({r["name"]: r["sales_order"] for r in _rows("SELECT name, sales_order FROM `tabOrder Pick List` WHERE name IN %s", (c,))})
+		order_of.update(
+			{
+				r["name"]: r["sales_order"]
+				for r in _rows("SELECT name, sales_order FROM `tabOrder Pick List` WHERE name IN %s", (c,))
+			}
+		)
 	by_bucket = defaultdict(list)
 	for l in lots:
 		l["cap"] = l["q"]
@@ -351,7 +402,14 @@ def _place_pulls(lots, end):
 	for group in by_bucket.values():
 		# first shelved first; of two shelved at the same instant (a bucket shelved as several rows), the one the log
 		# closed first, so an issue lands on the lot the log says it emptied
-		group.sort(key=lambda x: (x["shelved_on"], x["removed_on"] is None, x["removed_on"] or datetime.max, x["name"]))
+		group.sort(
+			key=lambda x: (
+				x["shelved_on"],
+				x["removed_on"] is None,
+				x["removed_on"] or datetime.max,
+				x["name"],
+			)
+		)
 	left_out = defaultdict(lambda: [0.0, 0])
 	for p in sorted(pulls, key=lambda x: x["t"]):
 		left = float(p["q"] or 0)
@@ -403,7 +461,11 @@ def _in_types(ins, farm, start, end):
 			elif e["reason"] == "Shelf Cleared":
 				label = "Reshelved after a clear"
 			elif e["reason"] == "Transferred (Trolley/Truck)":
-				label = "Returned from trolley or truck" if e["farm"] == farm else "Arrived from another farm (trolley or truck)"
+				label = (
+					"Returned from trolley or truck"
+					if e["farm"] == farm
+					else "Arrived from another farm (trolley or truck)"
+				)
 		out[l["name"]] = label
 	return out
 
@@ -415,4 +477,3 @@ def _phantom(farm, start, end):
 		(farm, start, end),
 	)[0]
 	return {"lots": int(r["n"] or 0), "stems": float(r["q"] or 0)}
-

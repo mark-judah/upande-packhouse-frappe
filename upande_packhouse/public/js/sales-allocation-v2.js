@@ -2330,7 +2330,7 @@ frappe.pages["sales-allocation-v2"]._bind_cutstage_bypass = function () {
 			P.bypass_cut_stage = $(this).is(":checked");
 			P.clear_allocations(true);
 			P.item_filters = {};
-					frappe.call({
+			frappe.call({
 				method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2.get_sales_order_items_with_buckets",
 				args: {
 					sales_order: P.selected_order,
@@ -2488,34 +2488,52 @@ frappe.pages["sales-allocation-v2"]._show_bucket_rules = function (so_item) {
 			selected_farms: JSON.stringify(P.selected_farms || []),
 			bypass_cut_stage: P.bypass_cut_stage ? 1 : 0,
 		},
-		error: () => (m.body.innerHTML = '<div class="ax-load">Could not work this out. Reload and try again.</div>'),
+		error: () =>
+			(m.body.innerHTML =
+				'<div class="ax-load">Could not work this out. Reload and try again.</div>'),
 		callback: (r) => {
 			const x = r.message || {};
 			const rows = (x.steps || [])
 				.map((s) => {
 					const buckets = s.buckets || [];
 					const detail = buckets.length
-						? `<details class="ax-det"><summary>${fmt(buckets.length + (s.more || 0))} bucket${
+						? `<details class="ax-det"><summary>${fmt(
+								buckets.length + (s.more || 0)
+						  )} bucket${
 								buckets.length + (s.more || 0) === 1 ? "" : "s"
 						  }</summary>${buckets
 								.map(
 									(b) =>
-										`<div><b>${esc(b.bucket)}</b> ${esc(b.length)} · ${esc(b.farm || "")} <span>${fmt(b.stems)}</span></div>`
+										`<div><b>${esc(b.bucket)}</b> ${esc(b.length)} · ${esc(
+											b.farm || ""
+										)} <span>${fmt(b.stems)}</span></div>`
 								)
-								.join("")}${s.more ? `<div class="ax-more">+ ${fmt(s.more)} more</div>` : ""}</details>`
+								.join("")}${
+								s.more ? `<div class="ax-more">+ ${fmt(s.more)} more</div>` : ""
+						  }</details>`
 						: "";
 					const cls = (s.removed ? "" : "ax-zero") + (s.n === 17 ? " ax-final" : "");
-					return `<tr class="${cls}"><td class="ax-n">${s.n}</td><td>${esc(s.rule)}${detail}</td><td class="ax-num ax-rem">${
+					return `<tr class="${cls}"><td class="ax-n">${s.n}</td><td>${esc(
+						s.rule
+					)}${detail}</td><td class="ax-num ax-rem">${
 						s.n >= 17 ? "" : s.removed ? "−" + fmt(s.removed) : "0"
 					}</td><td class="ax-num">${s.n === 18 ? "" : fmt(s.after)}</td></tr>`;
 				})
 				.join("");
 			const sc = x.scope || {};
 			m.body.innerHTML = `<div class="ax">
-				<div class="ax-sum">${fmt(x.start)} stems on a shelf, ${fmt(x.final)} available (${fmt(x.exact)} exact, ${fmt(x.downgrade)} downgrade)</div>
+				<div class="ax-sum">${fmt(x.start)} stems on a shelf, ${fmt(x.final)} available (${fmt(
+				x.exact
+			)} exact, ${fmt(x.downgrade)} downgrade)</div>
 				<div class="ax-scope">${esc((sc.farms || []).join(", "))}</div>
 				<table class="ax-tbl"><thead><tr><th></th><th>Rule</th><th class="ax-num">Taken off</th><th class="ax-num">Left</th></tr></thead><tbody>${rows}</tbody></table>
-				${x.matches_page ? "" : `<div class="ax-bad">Does not match the page (${fmt(x.page_total)}).</div>`}
+				${
+					x.matches_page
+						? ""
+						: `<div class="ax-bad">Does not match the page (${fmt(
+								x.page_total
+						  )}).</div>`
+				}
 			</div>`;
 		},
 	});

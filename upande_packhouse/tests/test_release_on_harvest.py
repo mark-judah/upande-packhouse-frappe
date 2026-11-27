@@ -152,8 +152,14 @@ class TestReleaseOnHarvest(IntegrationTestCase):
 
 	def test_a_plain_allocation_is_issuing_skipped_and_a_transfer_is_transfer_incomplete(self):
 		self._release()
+		from upande_packhouse import stale_release
+
+		options = (frappe.get_meta("Bucket Reuse Anomaly").get_field("skipped_step").options or "").split(
+			"\n"
+		)
+		plain = stale_release.STEP if stale_release.STEP in options else stale_release.FALLBACK_STEP
 		by_step = sorted(a.skipped_step for a in self._anomalies())
-		self.assertEqual(by_step, ["Issuing Skipped", "Transfer Incomplete", "Transfer Incomplete"])
+		self.assertEqual(by_step, sorted([plain, "Transfer Incomplete", "Transfer Incomplete"]))
 
 	def test_the_incomplete_transfers_are_counted_and_logged_for_the_journey(self):
 		out = self._release()
