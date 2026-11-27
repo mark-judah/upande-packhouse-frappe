@@ -113,6 +113,16 @@ def after_migrate():
 	_run()
 
 
+def warm_stock_visibility():
+	"""A migrate empties the cache: read what Stock Visibility keeps in a background job, not on its first load."""
+	frappe.enqueue(
+		"upande_packhouse.api.v2.core.bucket_cycle.warm",
+		queue="long",
+		job_id="bucket_cycle_warm",
+		deduplicate=True,
+	)
+
+
 def _run():
 	from upande_packhouse.allocation_indexes import ensure_allocation_indexes
 	from upande_packhouse.allocation_plan import ensure_indexes, setup_settings
@@ -125,6 +135,7 @@ def _run():
 		setup_settings,
 		ensure_indexes,
 		ensure_allocation_indexes,
+		warm_stock_visibility,
 	):
 		try:
 			step()

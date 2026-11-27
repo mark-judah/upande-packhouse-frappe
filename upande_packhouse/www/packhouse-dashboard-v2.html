@@ -742,9 +742,8 @@
     return `<div class="ow-ord${g.severity ? " is-" + g.severity : ""}">
       <div class="ow-ord__head">${side}<h3 class="ow-ord__title"><span class="ow-num">${num}</span><span class="ow-ord__cust">${PH.esc(r.customer_name || "")}</span><span class="ow-ord__so">Order ${PH.esc(r.order_name || r.sales_order)}</span>${g.opl ? `<span class="ow-ord__opl">${PH.esc(g.opl)}</span>` : ""}</h3>
         <div class="ow-ord__meta">${un ? `<span class="ph-muted">${PH.fmt.plural(g.rows.length, "variety", "varieties")} · ${n(g.ordered_stems)} stems · no pick list</span> <span class="ph-badge ph-badge--bad">${PH.esc(dueText(r))}</span>` : `<span class="ph-badge ph-badge--${stageCls(g.stage)}">${PH.esc(g.stage.stage_label)}</span> <span class="ow-ord__date">${PH.esc(r.delivery_date ? PH.fmt.date(r.delivery_date, true) : "—")}</span>${(() => { const d = r.delivery_date ? PH.date.diff(data.today, r.delivery_date) : 0; return d < 0 && !["dispatched", "invoiced"].includes(r.stage) ? `<span class="ow-late">${-d}d late</span>` : ""; })()}`}
-        <button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-grp="${PH.esc(g.key)}">${open ? "Hide details" : "Details"}</button></div></div>
+        <button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-grp="${PH.esc(g.key)}">Details</button></div></div>
       <div class="ow-ord__body">${!un && !part ? `<div class="ow-cls">${g.rows.map(compactLine).join("")}</div>` : `<div class="ph-table-wrap"><table class="ph-table ow-ord__tbl${un || part ? " is-plain" : " is-wide"}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`}</div>
-      ${open ? orderDetailHtml(g) : ""}
     </div>`;
   }
 
@@ -854,7 +853,7 @@
     if (g.opl && ob) {
       const bx = fl ? fl.boxes : [];
       const rowsH = bx.map((b) => `<tr><td>${PH.esc(b.no || b.box)}</td><td>${tm(b.packed_at)}</td><td>${tm(b.precooling_at)}</td><td>${tm(b.staged_at)}</td><td title="${PH.esc(b.takt_note || "")}"><b>${b.takt_secs == null ? "—" : dur(b.takt_secs)}</b></td><td>${tm(b.loaded_at)}</td><td>${tm(b.dispatched_at)}</td></tr>`).join("");
-      boxes = `<details class="ow-boxes-d"><summary>${n(ob.complete)} / ${n(ob.planned)} boxes packed · per-box times${fl && fl.issued_at ? " · first issued " + tm(fl.issued_at) : ""}</summary>
+      boxes = `<details class="ow-boxes-d" open><summary>${n(ob.complete)} / ${n(ob.planned)} boxes packed · per-box times${fl && fl.issued_at ? " · first issued " + tm(fl.issued_at) : ""}</summary>
         <div class="ow-boxes"><table class="ph-table"><thead><tr><th>Box</th><th>Packed</th><th>Precooling in</th><th>Staged</th><th>Takt (issue → staged)</th><th>Loaded</th><th>Dispatched</th></tr></thead><tbody>${rowsH || '<tr><td colspan="7" class="ph-muted">' + (fl ? "No boxes packed yet" : "…") + "</td></tr>"}</tbody></table></div></details>`;
     }
     const sh = d.shelves && d.shelves.length ? PH.esc(d.shelves.slice(0, 3).join(", ")) + (d.shelves.length > 3 ? " +" + (d.shelves.length - 3) : "") : "";
@@ -905,9 +904,9 @@
     }
     const gr = e.target.closest("[data-grp]");
     if (gr) {
-      const k = gr.dataset.grp;
-      if (openRow.has(k)) openRow.delete(k); else { openRow.add(k); const g = grpIndex[k]; if (g && g.opl && !detail[g.opl]) loadDetail(g.opl); }
-      return PH.keepScroll(render);
+      const g = grpIndex[gr.dataset.grp];
+      if (g) showOrder(g);
+      return;
     }
   });
   /* several detail answers arriving together redraw the page once, not once each */
@@ -919,6 +918,22 @@
   }
   function loadDetail(opl) {
     return PH.call(API + "get_opl_detail", { opl }, { silent: true }).then((m) => { if (m && m.success) { detail[opl] = m; scheduleRender(); } }).catch(() => {});
+  }
+  /* An order's details (per-box times, documents, shelves) in a drawer from the right, as the Orders tile's list. */
+  function showOrder(g) {
+    const r = g.first, box = document.createElement("div");
+    const paint = () => { box.innerHTML = orderDetailHtml(g); };
+    paint();
+    box.addEventListener("click", (e) => {
+      const ib = e.target.closest("[data-issues]");
+      if (ib) showIssues(ib.dataset.issues);
+    });
+    const m = PH.modal({
+      title: [r.customer_name, "Order " + (r.order_name || r.sales_order)].filter(Boolean).join(" · "),
+      sub: [g.opl, r.delivery_date ? PH.fmt.date(r.delivery_date, true) : ""].filter(Boolean).join(" · "),
+      size: "lg", drawer: true, body: box,
+    });
+    if (g.opl && !detail[g.opl]) loadDetail(g.opl).then(() => { if (box.isConnected) paint(); });
   }
   function showIssues(opl) {
     const open = (m) => {
