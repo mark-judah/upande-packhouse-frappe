@@ -892,7 +892,9 @@ def _plan(window=None):
 		rank_schedules(frappe.utils.add_days(window, -1), replan=False)
 		return summary
 
-	summary["trips"], summary["failed"] = _save_plan(loads, today, window, None, graph)
+	summary["trips"], summary["failed"] = _save_plan(
+		loads, today, window, None, graph, planned={o["opl"] for o in all_orders}
+	)
 	# Each re-plan that changed the trips is its own entry on the page's Distributed list:
 	# a record only -- a lock on its naming series (a Distribute running) never undoes the plan.
 	frappe.db.savepoint("auto_plan_log")
@@ -1555,7 +1557,7 @@ def _current_signature(today):
 	return sorted((v, tuple(sorted(rows))) for v, rows in by_vehicle.items())
 
 
-def _save_plan(loads, today, window, hub, graph):
+def _save_plan(loads, today, window, hub, graph, planned=None):
 	"""Write the plan over this scheduler's own drafts. A draft keeps its name: its run's
 	new plan is written into it in place (the farm app keeps the trip it has open), and
 	only a draft whose run gets nothing, with nothing loaded, is deleted. Nothing is
@@ -1564,6 +1566,10 @@ def _save_plan(loads, today, window, hub, graph):
 	truck's other runs keep their new plan -- one run's refusal used to roll back the
 	whole truck, leaving its farms' orders on no trip. A truck's runs are saved first to
 	last, so a later run never gets buckets an earlier one has room for.
+	`planned`: the orders this run plans in full (its window's). An order of another day on a draft -- the day
+	after's, only topped up here -- that this run puts on no trip goes back on the draft it was on: a re-plan for
+	tomorrow never takes a trip Distribute made for the day after apart (deleting it and making it again under
+	another name, while the farm app had it open).
 	Returns (saved trips, failed)."""
 	tc._plan_lock()
 	# Settle the trucks' finished trips now (_vehicle_on_road commits that): a commit
@@ -1613,9 +1619,21 @@ def _save_plan(loads, today, window, hub, graph):
 	# the drafts that carried them, as far as they are still free.
 	keys = {(r["order_pick_list"], r["farm"]) for t in refused for r in t["rows"]}
 	runs = {(t["vehicle"], int(t.get("run") or 0)) for t in refused}
+	placed = {r["order_pick_list"] for t in loads if t not in refused for r in t["rows"]}
+	others = (
+		(lambda r: r["order_pick_list"] not in planned and r["order_pick_list"] not in placed)
+		if planned is not None
+		else None
+	)
 	_restore_drafts(
 		{
-			n: [r for r in rows if draft_run.get(n) in runs or (r["order_pick_list"], r["farm"]) in keys]
+			n: [
+				r
+				for r in rows
+				if draft_run.get(n) in runs
+				or (r["order_pick_list"], r["farm"]) in keys
+				or (others is not None and others(r))
+			]
 			for n, rows in last.items()
 		}
 	)
