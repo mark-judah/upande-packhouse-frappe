@@ -117,6 +117,15 @@ class BucketRequestTrip(Document):
 		]
 		by_opl = tc.opl_hubs(planned)
 		hubs = {h for h in by_opl.values() if h}
+		if tc.MULTI_SALES_FARM_TRIPS:
+			# one trip from a farm carries every sales farm's orders: the trip's sales farm is its truck's home
+			# (its route's), else the one its orders go to (the first, when several)
+			if not self.sales_farm or (len(hubs) == 1 and self.sales_farm not in hubs and not self.route):
+				home = tc.route_hub_of(self.route) if self.route else None
+				self.sales_farm = (
+					home or (sorted(hubs)[0] if hubs else None) or tc.transfer_hub(required=False)
+				)
+			return
 		if len(hubs) > 1 and not self.is_new():
 			self.move_off_other_sales_farms(by_opl)
 			planned = [
@@ -200,15 +209,19 @@ class BucketRequestTrip(Document):
 		from upande_packhouse.api import transfer_control as tc
 
 		hub = tc.trip_hub(self)
+		# a farm is collected from unless it is the sales farm its own order goes to
+		own = tc.opl_hubs(list({o.order_pick_list for o in self.get("orders") or [] if o.order_pick_list}))
 		planned = {
-			o.farm for o in self.get("orders") or [] if o.farm and o.farm != hub and int(o.buckets or 0) > 0
+			o.farm
+			for o in self.get("orders") or []
+			if o.farm and o.farm != (own.get(o.order_pick_list) or hub) and int(o.buckets or 0) > 0
 		}
 		if len(planned) > 1:
 			before = self.get_doc_before_save()
 			was = {
 				o.farm
 				for o in (before.orders if before else [])
-				if o.farm and o.farm != hub and int(o.buckets or 0) > 0
+				if o.farm and o.farm != (own.get(o.order_pick_list) or hub) and int(o.buckets or 0) > 0
 			}
 			# a run the planner made via several farms (Add to truck, one trip) collects at each
 			run = tc._run_of(self.route, self.run) if self.route and self.run else None

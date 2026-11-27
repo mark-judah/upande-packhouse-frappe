@@ -56,6 +56,7 @@ class UnitTestCombineTrips(UnitTestCase):
 		keep, rest = fold.call_args[0][0], fold.call_args[0][1]
 		self.assertEqual((keep.name, [d.name for d in rest]), ("T-1", ["T-2"]))
 
+	@patch.object(tc, "MULTI_SALES_FARM_TRIPS", False)
 	def test_trips_to_two_sales_farms_stay_apart(self):
 		out, fold = _combine([_trip("A", 1, "Kapkolia", 40), _trip("B", 2, "Chepsito", 8)])
 		self.assertEqual(out["status"], "error")
@@ -81,6 +82,7 @@ class UnitTestCombineTrips(UnitTestCase):
 
 
 class UnitTestTripValidates(UnitTestCase):
+	@patch.object(tc, "MULTI_SALES_FARM_TRIPS", False)
 	def test_a_trip_refuses_two_sales_farms(self):
 		doc = MagicMock()
 		doc.orders = [

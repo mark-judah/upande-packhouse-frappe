@@ -158,6 +158,7 @@ class UnitTestPartShelvedTripStaysOpen(UnitTestCase):
 			patch.object(ts, "_settle_held_trip", return_value=False),
 			patch.object(ts, "_settle_held_trips", return_value=[]),
 			patch.object(ts, "_arrive_trips_carrying", return_value=[]),
+			patch.object(ts, "trip_sales_farms", return_value=["Kapkolia"]),
 			patch.object(ts, "_vehicle_on_road", return_value="BRT-OLD"),
 			patch.object(ts, "ensure_arrived", return_value=False),
 			patch.object(ts, "_dispatch_waiting_trips", return_value=[]),

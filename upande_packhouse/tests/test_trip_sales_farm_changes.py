@@ -56,6 +56,13 @@ def _validate(doc):
 
 
 class UnitTestTripSalesFarmChanges(UnitTestCase):
+	"""The one-sales-farm-per-trip rule, with MULTI_SALES_FARM_TRIPS off."""
+
+	def setUp(self):
+		patcher = patch.object(tc, "MULTI_SALES_FARM_TRIPS", False)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
 	def test_loaded_buckets_ride_on_and_the_rest_come_off(self):
 		rows = [_row("OPL-K", 5), _row("OPL-MOVED", 6, loaded=4)]
 		doc = _trip(rows, before_rows=[_row("OPL-K", 5), _row("OPL-MOVED", 6, loaded=4)])
