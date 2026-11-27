@@ -189,9 +189,9 @@
   // of truth, a styled picker over it, its choice kept in sessionStorage and announced
   // with an event on document.
   (function(){
-    function filter(KEY, sel, all, evt){
-      var v = '';
-      try { v = sessionStorage.getItem(KEY) || ''; } catch (e) {}
+    function filter(KEY, sel, all, evt, dflt){
+      var v = dflt || '';
+      try { var kept = sessionStorage.getItem(KEY); if (kept !== null) v = kept; } catch (e) {}
       var api = {
         get: function(){ return v; },
         set: function(nv){
@@ -252,13 +252,14 @@
       document.addEventListener('mousedown', function(ev){ if (pop && !wrap.contains(ev.target)) close(); });
       sel.addEventListener('change', sync);
       new MutationObserver(sync).observe(sel, {childList: true});
+      if (v && [].some.call(sel.options, function(o){ return o.value === v; })) sel.value = v;
       sync();
       return api;
     }
     window.rtFarm = filter('rtFarm', document.getElementById('rt-farm'), 'All farms', 'rt-farm');
     window.rtTeam = filter('rtTeam', document.getElementById('rt-team'), 'All teams', 'rt-team');
     window.rtLocation = filter('rtLocation', document.getElementById('rt-location'), 'All locations', 'rt-location');
-    window.rtKind = filter('rtKind', document.getElementById('rt-kind'), 'All orders', 'rt-kind');
+    window.rtKind = filter('rtKind', document.getElementById('rt-kind'), 'All orders', 'rt-kind', 'export');
   })();
 </script>
 <script>
