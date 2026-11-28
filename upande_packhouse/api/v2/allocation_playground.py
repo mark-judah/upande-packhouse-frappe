@@ -2668,6 +2668,9 @@ def _unconfirm(sois, whole_mix):
 				)
 				if s not in sois
 			]
+	# a confirmation still "Fulfilled" by allocations since cancelled is the line's plan again, and goes too
+	for soi in sois:
+		plans.resync_fulfilment(soi)
 	live = [c for soi in sois for c in plans.live_confirmations(soi=soi)]
 	for c in live:
 		plans.release_confirmation(c.name, "Manual")

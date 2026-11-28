@@ -48,6 +48,12 @@ class UnitTestWholeMixBoxes(UnitTestCase):
 		# 10 boxes placed; Moonwalk brings 1 more box
 		self.assertEqual(out, {"L1": 80, "L2": 80, "L3": 80})
 
+	def test_a_line_left_empty_by_a_substitute_does_not_stop_the_mix(self):
+		# Furiosa's stems all moved to a substitute line: 0 stems a box, it neither fills nor limits the box
+		self.so = SimpleNamespace(items=[*self.lines, _line("L0", "Furiosa", rate=0)])
+		out, _notes = self._run({"L1": 160, "L2": 160, "L3": 160})
+		self.assertEqual(out, {"L1": 160, "L2": 160, "L3": 160})
+
 	def test_no_complete_box_is_refused(self):
 		with self.assertRaises(frappe.ValidationError):
 			self._run({"L1": 160})

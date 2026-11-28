@@ -449,6 +449,26 @@ def _kept_confirmation(r):
 	)
 
 
+def _confirmed_lines_only(items):
+	"""The order's lines Allocation Planning confirmed (a confirmation still held, or released once allocated),
+	or that have stems allocated already -- a straight line on its own, a mixed bunch or mixed box as one: any
+	of its lines confirmed lists every line of it."""
+	sois = [i["sales_order_item"] for i in items]
+	kept = {soi for soi, rows in _ac_rows(sois).items() if any(_kept_confirmation(r) for r in rows)}
+	kept |= set(
+		frappe.db.sql_list(
+			"""SELECT DISTINCT sales_order_item FROM `tabBucket Allocations`
+			   WHERE sales_order_item IN %(s)s AND IFNULL(cancelled, 0) = 0""",
+			{"s": tuple(sois)},
+		)
+	)
+	keys = box_keys(items)
+	kept_boxes = {keys.get(soi) for soi in kept} - {None}
+	return [
+		i for i in items if i["sales_order_item"] in kept or keys.get(i["sales_order_item"]) in kept_boxes
+	]
+
+
 def _planned_teams(sois):
 	"""allocation_plan.planned_teams, from _ac_rows: {line: the team the plan gave it} (the latest)."""
 	if planning_memo("ac_rows") is None:
@@ -1532,6 +1552,13 @@ def get_sales_order_items_with_buckets(
 
 	if not items:
 		return []
+
+	# Allocation Planning decides what is allocated: a line (a mix, all its lines) Allocation Planning has not
+	# confirmed is not listed, nor planned by Allocate all -- unless the sales farm lists unplanned orders.
+	if location not in _planning_switches()["unplanned"]:
+		items = _confirmed_lines_only(items)
+		if not items:
+			return []
 
 	# The team Allocation Planning confirmed each line for, for lines not on a pick list yet.
 	if _planning_switches()["team"]:
@@ -3230,21 +3257,22 @@ def _whole_mix_boxes(so_doc, allocations):
 			n = cint(ln.get("custom_number_of_boxes")) or 1
 			per[ln.name] = _line_capacity(ln) / n
 			placed[ln.name] = _placed_stems(ln.name)
+		# a line with nothing in the box (its stems all moved to a substitute) neither fills nor limits it
+		counted = [ln for ln in lines if per[ln.name] > 0]
+		if not counted:
+			continue
 		boxes = min(
 			min(
 				cint(ln.get("custom_number_of_boxes")) or 1,
-				int((placed[ln.name] + asked.get(ln.name, 0)) / per[ln.name] + 1e-9) if per[ln.name] else 0,
+				int((placed[ln.name] + asked.get(ln.name, 0)) / per[ln.name] + 1e-9),
 			)
-			for ln in lines
+			for ln in counted
 		)
-		scarce = min(
-			lines,
-			key=lambda ln: (placed[ln.name] + asked.get(ln.name, 0)) / per[ln.name] if per[ln.name] else 0,
-		)
+		scarce = min(counted, key=lambda ln: (placed[ln.name] + asked.get(ln.name, 0)) / per[ln.name])
 		for ln in lines:
 			if asked.get(ln.name):
 				keep[ln.name] = max(0.0, boxes * per[ln.name] - placed[ln.name])
-		done = min(int(placed[ln.name] / per[ln.name] + 1e-9) if per[ln.name] else 0 for ln in lines)
+		done = min(int(placed[ln.name] / per[ln.name] + 1e-9) for ln in counted)
 		if any(keep.get(ln.name, 0) < asked.get(ln.name, 0) - 0.5 for ln in lines):
 			notes.append(
 				_(
@@ -4807,6 +4835,8 @@ def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_lengt
 				bas.flags.ignore_permissions = True
 				bas.save(ignore_permissions=True)
 				bas_updated = True
+				# the line's confirmations get these stems back: still "Fulfilled", they held it as planned
+				allocation_plan.resync_fulfilment(sales_order_item)
 
 		opls = frappe.get_all("Order Pick List", filters={"sales_order": sales_order}, pluck="name")
 		removed_from_opls = []
