@@ -4807,6 +4807,8 @@ def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_lengt
 				bas.flags.ignore_permissions = True
 				bas.save(ignore_permissions=True)
 				bas_updated = True
+				# the line's confirmations get these stems back: still "Fulfilled", they held it as planned
+				allocation_plan.resync_fulfilment(sales_order_item)
 
 		opls = frappe.get_all("Order Pick List", filters={"sales_order": sales_order}, pluck="name")
 		removed_from_opls = []

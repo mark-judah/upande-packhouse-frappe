@@ -187,6 +187,10 @@ def drop_allocation_and_pick_rows(sales_order_item, bucket_id):
 			else {"custom_fully_allocated": 1 if _so_item_is_fully_allocated(sales_order_item) else 0},
 			update_modified=False,
 		)
+		if allocations:
+			from upande_packhouse.allocation_plan import resync_fulfilment
+
+			resync_fulfilment(sales_order_item)
 	return {"success": True, "allocations": allocations, "pick_rows": len(rows)}
 
 

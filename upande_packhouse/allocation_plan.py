@@ -485,6 +485,47 @@ def consume(bucket_id, soi, qty):
 		_set_fulfilment_status(conf)
 
 
+def resync_fulfilment(soi):
+	"""The line's confirmations' fulfilled stems re-counted from what is really allocated to it (its Bucket
+	Allocations not cancelled, issued or not), the stems confirmed from stock first, then the expected harvest.
+	An allocation cancelled (unallocated, released) gives its stems back: a confirmation left "Fulfilled" with
+	nothing allocated behind it held the line as planned, and unconfirming never released it. Returns the
+	confirmations changed."""
+	if not soi:
+		return []
+	allocated = flt(
+		frappe.db.sql(
+			"""SELECT SUM(quantity_allocated) FROM `tabBucket Allocations`
+			WHERE sales_order_item = %s AND IFNULL(cancelled, 0) = 0""",
+			soi,
+		)[0][0]
+	)
+	confs = frappe.get_all(
+		"Allocation Confirmation",
+		filters={"sales_order_item": soi, "status": ("in", (*LIVE, "Fulfilled"))},
+		fields=["name", "source", "status", "stems", "fulfilled_stems", "creation"],
+	)
+	changed = []
+	left = allocated
+	for c in sorted(confs, key=lambda c: (c.source != "Real", str(c.creation), c.name)):
+		done = min(flt(c.stems), max(0.0, left))
+		left -= done
+		if done >= flt(c.stems) - 0.0001:
+			status = "Fulfilled"
+		elif done > 0.0001:
+			status = "Partly Fulfilled"
+		elif c.status in ("Partly Fulfilled", "Fulfilled"):
+			status = "Reserved" if c.source == "Real" else "Planned"
+		else:
+			status = c.status
+		if abs(done - flt(c.fulfilled_stems)) > 0.0001 or status != c.status:
+			frappe.db.set_value(
+				"Allocation Confirmation", c.name, {"fulfilled_stems": done, "status": status}
+			)
+			changed.append(c.name)
+	return changed
+
+
 def _set_fulfilment_status(conf):
 	stems, done = frappe.db.get_value("Allocation Confirmation", conf, ["stems", "fulfilled_stems"])
 	frappe.db.set_value(
