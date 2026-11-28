@@ -449,6 +449,26 @@ def _kept_confirmation(r):
 	)
 
 
+def _confirmed_lines_only(items):
+	"""The order's lines Allocation Planning confirmed (a confirmation still held, or released once allocated),
+	or that have stems allocated already -- a straight line on its own, a mixed bunch or mixed box as one: any
+	of its lines confirmed lists every line of it."""
+	sois = [i["sales_order_item"] for i in items]
+	kept = {soi for soi, rows in _ac_rows(sois).items() if any(_kept_confirmation(r) for r in rows)}
+	kept |= set(
+		frappe.db.sql_list(
+			"""SELECT DISTINCT sales_order_item FROM `tabBucket Allocations`
+			   WHERE sales_order_item IN %(s)s AND IFNULL(cancelled, 0) = 0""",
+			{"s": tuple(sois)},
+		)
+	)
+	keys = box_keys(items)
+	kept_boxes = {keys.get(soi) for soi in kept} - {None}
+	return [
+		i for i in items if i["sales_order_item"] in kept or keys.get(i["sales_order_item"]) in kept_boxes
+	]
+
+
 def _planned_teams(sois):
 	"""allocation_plan.planned_teams, from _ac_rows: {line: the team the plan gave it} (the latest)."""
 	if planning_memo("ac_rows") is None:
@@ -1532,6 +1552,13 @@ def get_sales_order_items_with_buckets(
 
 	if not items:
 		return []
+
+	# Allocation Planning decides what is allocated: a line (a mix, all its lines) Allocation Planning has not
+	# confirmed is not listed, nor planned by Allocate all -- unless the sales farm lists unplanned orders.
+	if location not in _planning_switches()["unplanned"]:
+		items = _confirmed_lines_only(items)
+		if not items:
+			return []
 
 	# The team Allocation Planning confirmed each line for, for lines not on a pick list yet.
 	if _planning_switches()["team"]:
