@@ -3257,21 +3257,22 @@ def _whole_mix_boxes(so_doc, allocations):
 			n = cint(ln.get("custom_number_of_boxes")) or 1
 			per[ln.name] = _line_capacity(ln) / n
 			placed[ln.name] = _placed_stems(ln.name)
+		# a line with nothing in the box (its stems all moved to a substitute) neither fills nor limits it
+		counted = [ln for ln in lines if per[ln.name] > 0]
+		if not counted:
+			continue
 		boxes = min(
 			min(
 				cint(ln.get("custom_number_of_boxes")) or 1,
-				int((placed[ln.name] + asked.get(ln.name, 0)) / per[ln.name] + 1e-9) if per[ln.name] else 0,
+				int((placed[ln.name] + asked.get(ln.name, 0)) / per[ln.name] + 1e-9),
 			)
-			for ln in lines
+			for ln in counted
 		)
-		scarce = min(
-			lines,
-			key=lambda ln: (placed[ln.name] + asked.get(ln.name, 0)) / per[ln.name] if per[ln.name] else 0,
-		)
+		scarce = min(counted, key=lambda ln: (placed[ln.name] + asked.get(ln.name, 0)) / per[ln.name])
 		for ln in lines:
 			if asked.get(ln.name):
 				keep[ln.name] = max(0.0, boxes * per[ln.name] - placed[ln.name])
-		done = min(int(placed[ln.name] / per[ln.name] + 1e-9) if per[ln.name] else 0 for ln in lines)
+		done = min(int(placed[ln.name] / per[ln.name] + 1e-9) for ln in counted)
 		if any(keep.get(ln.name, 0) < asked.get(ln.name, 0) - 0.5 for ln in lines):
 			notes.append(
 				_(

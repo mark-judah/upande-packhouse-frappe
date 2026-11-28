@@ -155,10 +155,12 @@ def _box_adds(members, taken, ok):
 	its mixed bunch) split that variety box by box; taken line by line the first emptied it and not one box
 	was complete. Only complete boxes are held (_save_pending), so stems that complete none are not taken:
 	they stay free for the orders after this one. The last part box goes when it completes the line."""
-	live = [it for it in members if ok(it)]
 	per = {it["sales_order_item"]: _per_box(it) for it in members}
-	if not live or any(per[it["sales_order_item"]] <= 0 for it in members):
-		return {it["sales_order_item"]: _left(it) for it in live}
+	# a line with nothing in the box (its stems all moved to a substitute) neither fills nor limits it
+	members = [it for it in members if per[it["sales_order_item"]] > 0]
+	live = [it for it in members if ok(it)]
+	if not live:
+		return {}
 
 	def have(it):
 		return flt(it.get("total_allocated_qty"))
